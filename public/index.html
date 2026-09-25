@@ -104,6 +104,7 @@ table.lb{width:100%;border-collapse:collapse;font-size:12px}
 .cover-tabs .ct{display:flex;align-items:center;padding:0 12px;color:var(--muted);border-right:1px solid var(--line)}
 .cover-tabs .ct.on{background:var(--bg);color:var(--ink);border-top:1px solid var(--soft);margin-bottom:-1px}
 .cover-tabs .pz{margin-left:auto;display:flex;align-items:center;padding:0 12px;color:var(--muted);font-size:12px}
+.cover-tabs .pz b{margin:0 4px 0 5px;padding:1px 6px;border-radius:3px;background:#bfa37733;color:#e8d9b5;font-weight:600}
 .cover-crumbs{flex:none;padding:2px 16px 4px;font-size:12px;color:var(--muted)}
 .cover-code{flex:1;overflow:hidden;font-family:var(--mono);font-size:12px;line-height:18px;color:#cccccc;white-space:pre}
 .cover-code .ln{display:inline-block;width:52px;padding-right:22px;text-align:right;color:var(--muted);user-select:none}
@@ -1192,8 +1193,13 @@ function togglePause() {
 function updateCover() {
   const on = coverLocal || !!(snap && snap.pz);
   const by = !coverLocal && snap && snap.pz ? snap.pzb : '';
-  const label = '⏸ Pause' + (by ? ' bởi ' + by : '') + ' · Esc để tiếp tục';
-  if ($('coverPz').textContent !== label) $('coverPz').textContent = label;
+  const pzEl = $('coverPz');
+  if (pzEl.dataset.by !== by) {
+    pzEl.dataset.by = by;
+    pzEl.textContent = by ? '⏸ Pause bởi ' : '⏸ Pause';
+    if (by) { const b = document.createElement('b'); b.textContent = by; pzEl.append(b); }
+    pzEl.append(' · Esc để tiếp tục');
+  }
   const el = $('cover');
   if (el.hidden === !on) return;
   el.hidden = !on;
