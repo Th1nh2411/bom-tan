@@ -57,7 +57,7 @@ button.b[hidden]{display:none}
 .teams button[aria-pressed="true"]{border-color:#5a5a5a;background:#3a3a3a!important}
 .emotes{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
 .emotes button{font-size:16px;line-height:1;padding:5px 0;border-radius:2px;border:0;background:var(--input);cursor:pointer;filter:grayscale(1);opacity:.6}
-.emotes button:hover{filter:none;opacity:1}
+.emotes button:hover{opacity:1}
 ol.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
 .list li{display:flex;align-items:center;gap:8px;padding:3px 8px;border-radius:2px;background:transparent;border-left:2px solid transparent}
 .list li:hover{background:var(--panel)}
@@ -67,7 +67,7 @@ ol.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;ga
 .list .acc{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .list .tag{font-size:11px;color:var(--muted)}
 .list .sc{color:var(--soft);font-family:var(--mono);font-size:12px}
-.list .em{font-size:14px}
+.list .em{font-size:14px;filter:grayscale(1)}
 .list li.dead .nm{text-decoration:line-through;opacity:.5}
 .list li.team0{border-left-color:var(--red)}
 .list li.team1{border-left-color:var(--blue)}
@@ -81,7 +81,12 @@ table.lb{width:100%;border-collapse:collapse;font-size:12px}
 .lb .rk{text-align:left;color:var(--muted);width:22px}
 .fun{font-size:12px;color:var(--muted);margin:8px 0 0}
 .empty{color:var(--muted);margin:0}
-.help{font-size:12px;color:var(--muted);margin:0}
+.help{font-size:12px;color:var(--soft)}
+.help h3{font-size:12px;font-weight:600;color:var(--ink);margin:10px 0 3px}
+.help h3:first-of-type{margin-top:0}
+.help ul{margin:0;padding:0 0 0 14px;display:flex;flex-direction:column;gap:2px}
+.help li::marker{color:var(--muted)}
+.help .ico{filter:grayscale(1);display:inline-block;width:18px}
 .help kbd{font-family:var(--mono);font-size:11px;color:var(--soft);background:var(--input);border-radius:2px;padding:0 3px}
 .editor{display:flex;width:min(100%, calc((100dvh - 170px) * 16 / 13));min-width:260px;border:1px solid var(--line);overflow:hidden;background:var(--chrome)}
 .gutter{flex:none;width:calc(var(--t) * .9);display:flex;flex-direction:column;background:var(--bg);user-select:none}
@@ -162,7 +167,34 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
       <h2>bảng xếp hạng</h2>
       <div id="lbBody"></div>
     </section>
-    <p class="help">Di chuyển <kbd>WASD</kbd> / <kbd>mũi tên</kbd>, đặt bom <kbd>Space</kbd>, biểu cảm <kbd>1</kbd>–<kbd>6</kbd>. Chế độ 1 máy: người 2 dùng mũi tên + <kbd>Enter</kbd>. Vật phẩm: 💣 thêm bom, 🔥 nổ xa hơn, 👟 chạy nhanh hơn, 🧤 đi vào bom để đá nó. Bước vào cổng xoáy để sang cổng cùng màu. Chế độ đội: bom đồng đội không làm bạn chết, và người bị hạ gục nằm chờ 3 giây, đồng đội chạy đến chạm vào là cứu sống lại.</p>
+    <section class="sec help">
+      <h2>hướng dẫn</h2>
+      <h3>Điều khiển</h3>
+      <ul>
+        <li>Di chuyển: <kbd>WASD</kbd> hoặc <kbd>mũi tên</kbd></li>
+        <li>Đi tới ô: <kbd>chuột phải</kbd></li>
+        <li>Đặt bom: <kbd>Space</kbd></li>
+        <li>Biểu cảm: <kbd>1</kbd>–<kbd>6</kbd></li>
+        <li>Chế độ 1 máy, người 2: <kbd>mũi tên</kbd> + <kbd>Enter</kbd></li>
+      </ul>
+      <h3>Vật phẩm</h3>
+      <ul>
+        <li><span class="ico">💣</span> thêm 1 quả bom</li>
+        <li><span class="ico">🔥</span> nổ xa hơn</li>
+        <li><span class="ico">👟</span> chạy nhanh hơn</li>
+        <li><span class="ico">🧤</span> đi vào bom để đá nó</li>
+      </ul>
+      <h3>Cổng xoáy</h3>
+      <ul>
+        <li>Bước vào cổng để sang cổng cùng màu.</li>
+        <li>Lửa bom cũng đi xuyên qua cổng.</li>
+      </ul>
+      <h3>Chế độ đội</h3>
+      <ul>
+        <li>Bom đồng đội không làm bạn chết.</li>
+        <li>Bị hạ gục thì nằm chờ 3 giây. Đồng đội chạy đến chạm vào là cứu sống lại.</li>
+      </ul>
+    </section>
   </aside>
   <section class="stage">
     <div class="editor">
@@ -1151,6 +1183,8 @@ cv.addEventListener('contextmenu', onRightClick);
 
 const disp = new Map(), bombDisp = new Map();
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+// icons are drawn in grayscale so the board stays low-key
+function fillEmoji(s, x, y) { ctx.filter = "grayscale(1) brightness(1.1)"; ctx.fillText(s, x, y); ctx.filter = "none"; }
 function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
 function drawTile(c, x, y, now) {
@@ -1171,11 +1205,11 @@ function drawTile(c, x, y, now) {
     ctx.stroke();
   } else if (POWERS.includes(c)) {
     const bob = Math.sin(now / 250 + x + y) * T * .04;
-    ctx.fillStyle = '#cccccc'; ctx.beginPath(); ctx.arc(px + T / 2, py + T / 2 + bob, T * .36, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3c3c3c'; ctx.beginPath(); ctx.arc(px + T / 2, py + T / 2 + bob, T * .36, 0, 7); ctx.fill();
     ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1, T * .05); ctx.stroke();
     ctx.font = `${Math.round(T * .44)}px ${EMOJI_FONT}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText({ b: '💣', f: '🔥', s: '👟', k: '🧤' }[c], px + T / 2, py + T / 2 + bob + T * .02);
+    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤' }[c], px + T / 2, py + T / 2 + bob + T * .02);
   }
 }
 
@@ -1262,7 +1296,7 @@ function draw(dt) {
     ctx.fillStyle = p.color; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1.5, T * .07);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
     if (isMe) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, T * .04); ctx.beginPath(); ctx.arc(cx, cy, r + T * .08, 0, 7); ctx.stroke(); }
-    if (p.kick && p.alive) { ctx.font = `${Math.round(T * .26)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🧤', cx + r * .85, cy + r * .7); }
+    if (p.kick && p.alive) { ctx.font = `${Math.round(T * .26)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; fillEmoji('🧤', cx + r * .85, cy + r * .7); }
     const ex = [0, 1, 0, -1][dir] * r * .35, ey = [-1, 0, 1, 0][dir] * r * .3;
     if (p.alive) {
       ctx.fillStyle = '#fff';
@@ -1289,10 +1323,10 @@ function draw(dt) {
     if (bubble) {
       const life = emOn ? (em.until - now) / 2200 : 0.9 + Math.sin(now / 120) * 0.05, pop = Math.min(1, (1 - life) * 8);
       const by = cy - r - T * .95 - (1 - life) * T * .2;
-      ctx.fillStyle = '#cccccc'; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1, T * .04);
+      ctx.fillStyle = '#3c3c3c'; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1, T * .04);
       ctx.beginPath(); ctx.arc(cx, by, T * .36 * pop, 0, 7); ctx.fill(); ctx.stroke();
       ctx.font = `${Math.round(T * .42 * pop)}px ${EMOJI_FONT}`; ctx.textBaseline = 'middle';
-      ctx.fillText(bubble, cx, by + T * .02);
+      fillEmoji(bubble, cx, by + T * .02);
     }
   }
   for (const id of [...disp.keys()]) if (!seen.has(id)) disp.delete(id);
