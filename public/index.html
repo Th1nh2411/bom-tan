@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Bom Tấn</title>
+<title>bom_tan.js — workspace</title>
 <style>
 :root{
   box-sizing:border-box;
@@ -118,6 +118,9 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
 .overlay .big{font-size:clamp(20px,4vw,36px);font-weight:600;color:var(--ink);line-height:1.2}
 .overlay .small{margin-top:10px;color:var(--soft);max-width:44ch;font-family:var(--mono);font-size:12px}
 .overlay .small::before{content:"// ";color:var(--muted)}
+.overlay .stats{margin:14px 0 0;padding:8px 14px;max-width:100%;overflow:hidden;background:rgba(24,24,24,.85);border:1px solid var(--line);border-radius:2px;font-family:var(--mono);font-size:12px;line-height:18px;color:var(--soft);text-align:left;white-space:pre}
+.overlay .stats:empty{display:none}
+.overlay .stats b{color:var(--ink);font-weight:600}
 .pad{display:none;width:100%;max-width:520px;justify-content:space-between;align-items:center;padding:4px 6px;user-select:none;-webkit-user-select:none}
 .dpad{display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,60px);gap:4px}
 .dpad button{border:1px solid var(--line);border-radius:4px;background:var(--input);color:var(--ink);font-size:20px;touch-action:none}
@@ -219,6 +222,11 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
         <li>Bước vào cổng để sang cổng cùng màu.</li>
         <li>Lửa bom cũng đi xuyên qua cổng.</li>
       </ul>
+      <h3>Vùng bo</h3>
+      <ul>
+        <li>Sau 1 phút 30 giây, tường rơi dần từ ngoài vào trong.</li>
+        <li>Ô sắp bị lấp sẽ nháy viền đỏ. Đứng trúng là chết, khiên không đỡ được.</li>
+      </ul>
       <h3>Chế độ đội</h3>
       <ul>
         <li>Bom đồng đội không làm bạn chết.</li>
@@ -237,7 +245,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
       <div class="gutter" id="gutter" aria-hidden="true"></div>
       <div class="board-wrap" id="wrap">
         <canvas id="cv" aria-label="Bàn chơi"></canvas>
-        <div class="overlay" id="overlay"><div class="big" id="ovBig">Bom Tấn</div><div class="small" id="ovSmall"></div></div>
+        <div class="overlay" id="overlay"><div class="big" id="ovBig">Bom Tấn</div><div class="small" id="ovSmall"></div><pre class="stats" id="ovStats"></pre></div>
       </div>
     </div>
     <div class="pad" id="pad">
@@ -265,8 +273,21 @@ const idx = (x, y) => y * W + x;
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 const SPAWNS = [[1,1],[13,11],[13,1],[1,11],[7,1],[7,11],[1,5],[13,7]];
 const PORTALS = [[idx(5,3), idx(9,9)], [idx(9,3), idx(5,9)]];
-const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 4, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
+const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 6, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
 const POWERS = 'bfskh';   // h = shield: absorbs one hit, then 1s of invulnerability
+// sudden death: after SD_START seconds of play, walls fill the two outer rings in a spiral, one cell per SD_STEP
+const SD_START = 90, SD_STEP = 0.35;
+const SD_ORDER = (() => {
+  const o = [];
+  for (let r = 0; r < 2; r++) {
+    const x0 = 1 + r, y0 = 1 + r, x1 = W - 2 - r, y1 = H - 2 - r;
+    for (let x = x0; x <= x1; x++) o.push(y0 * W + x);
+    for (let y = y0 + 1; y <= y1; y++) o.push(y * W + x1);
+    for (let x = x1 - 1; x >= x0; x--) o.push(y1 * W + x);
+    for (let y = y1 - 1; y > y0; y--) o.push(y * W + x0);
+  }
+  return o;
+})();
 const speedOf = p => 3.3 + 0.6 * p.spd;
 
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
@@ -431,6 +452,17 @@ function placeBomb(g, p, cellHint) {
   for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
 }
 
+// sudden death: a wall lands on cell i, crushing whatever is there (shields do not help)
+function crushCell(g, i) {
+  g.grid[i] = '#'; g.hidden[i] = ''; g.burn.delete(i); g.flames.delete(i);
+  g.bombs = g.bombs.filter(b => b.i !== i);
+  for (const p of g.players) {
+    if (idx(Math.round(p.x), Math.round(p.y)) !== i) continue;
+    if (p.alive) { p.alive = false; p.down = 0; p.shield = false; g.kills.push([null, p.id]); }
+    else if (p.down > 0) { p.down = 0; g.kills.push([p.downBy, p.id]); }
+  }
+}
+
 // scatter a dead player's power-ups onto the nearest free floor cells (BFS from where they died)
 function dropItems(g, p) {
   const items = [];
@@ -533,6 +565,7 @@ function stepGame(g, inputs, dt, scores) {
     const ci = idx(Math.round(p.x), Math.round(p.y));
     p.pass = p.pass.filter(id => { const b = g.bombs.find(o => o.id === id); return b && b.i === ci; });
     const c = g.grid[ci];
+    if (POWERS.includes(c)) p.picks = (p.picks || 0) + 1;
     if (c === 'b') { p.maxB = Math.min(8, p.maxB + 1); g.grid[ci] = '.'; }
     else if (c === 'f') { p.fire = Math.min(8, p.fire + 1); g.grid[ci] = '.'; }
     else if (c === 's') { p.spd = Math.min(5, p.spd + 1); g.grid[ci] = '.'; }
@@ -578,6 +611,17 @@ function stepGame(g, inputs, dt, scores) {
     else g.burn.set(i, t - dt);
   }
 
+  g.t = (g.t || 0) + dt;
+  if (g.t >= SD_START) {
+    g.sdAcc = (g.sdAcc || 0) + dt; g.sdk = g.sdk || 0;
+    while (g.sdAcc >= SD_STEP && g.sdk < SD_ORDER.length) {
+      const i = SD_ORDER[g.sdk++];
+      if (g.grid[i] === '#') continue;   // pillars are already walls: skip them for free
+      g.sdAcc -= SD_STEP;
+      crushCell(g, i);
+    }
+  }
+
   // anyone dead for good (not a downed teammate waiting for rescue) drops what they picked up
   for (const p of g.players) if (!p.alive && p.down <= 0 && !p.dropped) { p.dropped = true; dropItems(g, p); }
 
@@ -610,7 +654,14 @@ function snapshot(g, scores) {
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
     pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0]),
-    w: g.winner || '', pz: g.pz ? 1 : 0
+    w: g.winner || '', pz: g.pz ? 1 : 0,
+    sd: g.ph === 'play' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
+    // end-of-round stats: [id, kills, pickups, revives, how they died: '' alive, '=' own bomb, '#' crushed, else killer id]
+    st: g.ph !== 'end' ? undefined : g.players.map(p => {
+      const death = g.kills.find(([, v]) => v === p.id);
+      const by = !death ? '' : death[0] === null ? '#' : death[0] === p.id ? '=' : String(death[0]);
+      return [p.id, g.kills.filter(([a, v]) => a === p.id && v !== p.id).length, p.picks || 0, g.revives.filter(([a]) => a === p.id).length, by];
+    })
   };
 }
 /* ================= END ENGINE ================= */
@@ -628,7 +679,7 @@ function store(k, v) { try { if (v === undefined) return localStorage.getItem(k)
 
 /* ---------- sound (synthesized, no files) ---------- */
 const sfx = (() => {
-  let ac = null, master = null, noiseBuf = null, muted = store('bt-mute') === '1';
+  let ac = null, master = null, noiseBuf = null, muted = store('bt-mute') !== '0';   // muted unless the player turned sound on
   function ensure() {
     if (!ac) {
       try {
@@ -641,7 +692,7 @@ const sfx = (() => {
     if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
   }
   function tone(f, dur, type, vol, f2, delay) {
-    if (muted || !ac) return;
+    if (muted || !ac || document.hidden) return;
     const t = ac.currentTime + (delay || 0);
     const o = ac.createOscillator(), g = ac.createGain();
     o.type = type || 'square'; o.frequency.setValueAtTime(f, t);
@@ -650,7 +701,7 @@ const sfx = (() => {
     o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
   }
   function noise(dur, vol, fq, fq2) {
-    if (muted || !ac) return;
+    if (muted || !ac || document.hidden) return;
     const t = ac.currentTime;
     const s = ac.createBufferSource(); s.buffer = noiseBuf;
     const f = ac.createBiquadFilter(); f.type = 'lowpass';
@@ -1040,7 +1091,9 @@ function sanitizeSnap(s) {
     bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
     pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb),
-    kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : []
+    kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : [],
+    sd: typeof s.sd === 'number' ? s.sd | 0 : -1,
+    st: Array.isArray(s.st) ? s.st.filter(a => Array.isArray(a) && a.length >= 5).slice(0, 8).map(a => ({ id: String(a[0]), k: a[1] | 0, it: a[2] | 0, rv: a[3] | 0, by: String(a[4] || '') })) : []
   };
 }
 
@@ -1247,6 +1300,7 @@ function updateCover() {
   if (el.hidden === !on) return;
   el.hidden = !on;
   document.body.classList.toggle('covered', on);
+  document.title = on ? 'invoice.service.ts — workspace' : 'bom_tan.js — workspace';
   if (on) clearMoveTarget();
 }
 const FAKE_CODE = `import { Injectable, Logger } from '@nestjs/common';
@@ -1312,8 +1366,8 @@ $('coverCode').innerHTML = FAKE_CODE.split('\n').map((l, k) => `<div><span class
 
 /* ---------- main loop ---------- */
 let lastT = performance.now(), lastListT = 0;
-function frame(t) {
-  const dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
+function simulate(now) {
+  const dt = Math.min(0.05, Math.max(0, now - lastT) / 1000); lastT = now;
   mouseSteer();
   if (mode === 'local' && hostGame) {
     const li = { p1: ctlDir(ctlA), p2: ctlDir(ctlB) };
@@ -1334,6 +1388,10 @@ function frame(t) {
   } else {
     predictStep(dt);
   }
+  return dt;
+}
+function frame(t) {
+  const dt = simulate(t);
   updateCover();
   draw(dt);
   drawMoveTarget();
@@ -1342,6 +1400,12 @@ function frame(t) {
   if (t - lastListT > 250) { lastListT = t; renderList(); updateUI(); updateStatus(); }
   requestAnimationFrame(frame);
 }
+// Browsers stop requestAnimationFrame in a hidden tab, which would freeze the whole room while the host
+// looks at another tab. A worker's timer keeps ticking, so it drives the simulation (no drawing) while hidden.
+try {
+  const ticker = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })));
+  ticker.onmessage = () => { if (document.hidden && hosting && mode === 'online') simulate(performance.now()); };
+} catch (e) { /* no workers: the game pauses while the tab is hidden, as before */ }
 
 /* ---------- rendering ---------- */
 const cv = $('cv'), ctx = cv.getContext('2d');
@@ -1428,6 +1492,16 @@ function draw(dt) {
   const grid = s ? s.g : emptyGrid;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) drawTile(grid[idx(x, y)], x, y, now);
   drawPortals(now);
+  // sudden death warning: outline the next cells the closing walls will fill
+  if (s && s.ph === 'play' && s.sd >= 0 && s.sd <= 5) {
+    let shown = 0;
+    ctx.strokeStyle = `rgba(199,127,140,${.45 + Math.sin(now / 120) * .25})`; ctx.lineWidth = Math.max(1.5, T * .06);
+    for (const i of SD_ORDER) {
+      if (grid[i] === '#') continue;
+      ctx.strokeRect((i % W) * T + T * .08, ((i / W) | 0) * T + T * .08, T * .84, T * .84);
+      if (++shown >= (s.sd === 0 ? 4 : 1)) break;
+    }
+  }
   if (!s) return;
 
   for (const i of s.fl) {
@@ -1528,6 +1602,27 @@ function setOverlay(big, small) {
   if ($('ovBig').textContent !== big) $('ovBig').textContent = big;
   if ($('ovSmall').textContent !== small) $('ovSmall').textContent = small;
 }
+// terminal-style round summary shown under the winner text
+function renderStats(s) {
+  const box = $('ovStats');
+  const key = s && s.ph === 'end' && s.st.length ? s.rid + ':' + JSON.stringify(s.st) : '';
+  if (box.dataset.key === key) return;
+  box.dataset.key = key; box.textContent = '';
+  if (!key) return;
+  const nameOf = id => { const p = s.pl.find(q => q.id === id); return p ? p.name : '?'; };
+  const w = Math.max(...s.st.map(r => nameOf(r.id).length), 4);
+  const line = (txt, bold) => { const el = document.createElement(bold ? 'b' : 'span'); el.textContent = txt; box.append(el); };
+  line('$ bom --stats\n');
+  const rows = [...s.st].sort((a, b) => b.k - a.k || b.it - a.it);
+  for (const r of rows) {
+    const fate = r.by === '' ? 'sống sót' : r.by === '=' ? 'tự nổ' : r.by === '#' ? 'bị tường đè' : 'bị ' + nameOf(r.by) + ' hạ';
+    line(nameOf(r.id).padEnd(w + 2), true);
+    line(`${String(r.k).padStart(2)} kill  ${String(r.it).padStart(2)} đồ${r.rv ? '  ' + r.rv + ' cứu' : ''}  ${fate}\n`);
+  }
+  const best = rows[0];
+  if (best && best.k > 0 && (rows.length < 2 || rows[1].k < best.k)) line('> MVP: ' + nameOf(best.id) + ' (' + best.k + ' kill)');
+  else box.lastChild.textContent = box.lastChild.textContent.replace(/\n$/, '');
+}
 function winnerText(s) {
   if (s.w.startsWith('team')) return TEAM_NAMES[Number(s.w.slice(4))] + ' thắng!';
   const p = s.pl.find(q => q.id === s.w);
@@ -1536,6 +1631,7 @@ function winnerText(s) {
 }
 function updateOverlay() {
   const s = snap;
+  renderStats(s);
   if (mode === 'local') {
     if (!s) return setOverlay('', '');
     if (s.ph === 'count') return setOverlay(String(s.tm || 1), 'P1: WASD + Space. P2: mũi tên + Enter.');
@@ -1663,7 +1759,10 @@ function updateStatus() {
   }
   $('stHost').textContent = host;
   const ph = !s ? '' : { lobby: 'sảnh chờ', count: 'đếm ngược', play: 'đang chơi', end: 'hết ván' }[s.ph];
-  $('tabNote').textContent = ph ? '// ' + ph : '';
+  let note = ph ? '// ' + ph : '';
+  if (s && s.ph === 'play' && s.sd > 0) note += ` · bo sau ${Math.floor(s.sd / 60)}:${String(s.sd % 60).padStart(2, '0')}`;
+  else if (s && s.ph === 'play' && s.sd === 0) note += ' · bo đang thu hẹp';
+  if ($('tabNote').textContent !== note) $('tabNote').textContent = note;
 }
 
 function updateUI() {
