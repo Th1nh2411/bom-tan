@@ -97,6 +97,18 @@ table.lb{width:100%;border-collapse:collapse;font-size:12px}
 .gutter span{height:var(--t);display:flex;align-items:center;justify-content:flex-end;padding-right:min(10px, calc(var(--t) * .2));font-family:var(--mono);font-size:min(12px, max(10px, calc(var(--t) * .45)));color:var(--muted)}
 .gutter span.cur{color:var(--ink)}
 .board-wrap{position:relative;flex:1;min-width:0}
+.editor{position:relative}
+.cover{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.cover[hidden]{display:none}
+.cover-tabs{display:flex;align-items:stretch;height:35px;flex:none;background:var(--chrome);border-bottom:1px solid var(--line);font-size:13px}
+.cover-tabs .ct{display:flex;align-items:center;padding:0 12px;color:var(--muted);border-right:1px solid var(--line)}
+.cover-tabs .ct.on{background:var(--bg);color:var(--ink);border-top:1px solid var(--soft);margin-bottom:-1px}
+.cover-tabs .pz{margin-left:auto;display:flex;align-items:center;padding:0 12px;color:var(--muted);font-size:12px}
+.cover-crumbs{flex:none;padding:2px 16px 4px;font-size:12px;color:var(--muted)}
+.cover-code{flex:1;overflow:hidden;font-family:var(--mono);font-size:12px;line-height:18px;color:#cccccc;white-space:pre}
+.cover-code .ln{display:inline-block;width:52px;padding-right:22px;text-align:right;color:var(--muted);user-select:none}
+.c-kw{color:#7f9cc4}.c-st{color:#b8977e}.c-cm{color:#6b7d61}.c-nu{color:#a3b596}.c-fn{color:#cfc9a4}.c-ty{color:#7fae9f}
+body.covered #tabNote{visibility:hidden}
 canvas{display:block;width:100%;height:auto;touch-action:none}
 .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;pointer-events:none;background:rgba(24,24,24,.78);transition:opacity .2s}
 .overlay.hide{opacity:0}
@@ -185,6 +197,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
         <li>Đi tới ô: <kbd>chuột phải</kbd></li>
         <li>Đặt bom: <kbd>Space</kbd></li>
         <li>Biểu cảm: <kbd>1</kbd>–<kbd>6</kbd></li>
+        <li>Tạm dừng cả phòng, che bằng màn hình code: <kbd>Esc</kbd></li>
         <li>Chế độ 1 máy, người 2: <kbd>mũi tên</kbd> + <kbd>Enter</kbd></li>
       </ul>
       <h3>Vật phẩm</h3>
@@ -210,6 +223,11 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
   <div class="scrim" id="scrim"></div>
   <section class="stage">
     <div class="editor">
+      <div class="cover" id="cover" hidden>
+        <div class="cover-tabs"><span class="ct on">invoice.service.ts</span><span class="ct">invoice.controller.ts</span><span class="pz">⏸ Pause · Esc để tiếp tục</span></div>
+        <div class="cover-crumbs">src › invoice › invoice.service.ts › InvoiceService</div>
+        <div class="cover-code" id="coverCode"></div>
+      </div>
       <div class="gutter" id="gutter" aria-hidden="true"></div>
       <div class="board-wrap" id="wrap">
         <canvas id="cv" aria-label="Bàn chơi"></canvas>
@@ -558,7 +576,7 @@ function snapshot(g, scores) {
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
     pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0]),
-    w: g.winner || ''
+    w: g.winner || '', pz: g.pz ? 1 : 0
   };
 }
 /* ================= END ENGINE ================= */
@@ -978,7 +996,7 @@ function sanitizeSnap(s) {
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: s.g,
     bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
-    pl, w: String(s.w || '')
+    pl, w: String(s.w || ''), pz: s.pz === 1
   };
 }
 
@@ -1107,6 +1125,7 @@ function publishHost(force) {
 let predGridStr = '', predGrid = [];
 function predictStep(dt) {
   if (mode !== 'online' || hosting || !room || !snap || snap.ph !== 'play') { pred = null; return; }
+  if (snap.pz) return;   // paused: hold the predicted position
   const me = snap.pl.find(p => p.id === myPeer);
   if (!me || !me.alive) { pred = null; return; }
   if (!pred || pred.rid !== snap.rid) pred = { rid: snap.rid, x: me.x, y: me.y, dir: me.dir, pass: [], lock: -1, err: 0, tpT: 0, bombs: new Set() };
@@ -1142,17 +1161,113 @@ function localSlots() { return [{ id: 'p1', name: 'P1 (WASD)', color: 0 }, { id:
 function startLocal() { mode = 'local'; scores = {}; pred = null; hostGame = newGame(localSlots(), false); snap = null; lastSnapObj = null; updateUI(); }
 function stopLocal() { mode = 'online'; hostGame = null; snap = null; onRoomChange(); }
 
+/* ---------- pause (Esc): anyone can pause the whole room; the board is covered by a code tab ---------- */
+let coverLocal = false, pzSeq = 0;
+const pzSeen = new Map();   // peer -> last pause-request seq the host has handled
+// while paused, keep bomb counters in sync so presses made during the pause do not fire on resume
+function holdInputs(g, inputs) { for (const p of g.players) { const inp = inputs[p.id]; if (inp) p.lastB = inp.b; } }
+function hostPauseRequests() {
+  for (const p of peers()) {
+    if (p.sameTab) continue;
+    const z = p.presence && p.presence.pz, seq = Array.isArray(z) ? z[1] | 0 : 0;
+    const seen = pzSeen.get(p.peer);
+    pzSeen.set(p.peer, seq);
+    if (seen === undefined || seen === seq || !hostGame) continue;
+    hostGame.pz = z[0] === 1;
+    publishHost(true);
+  }
+}
+const gameRunning = () => !!(snap && (snap.ph === 'count' || snap.ph === 'play'));
+function togglePause() {
+  if (mode === 'local' && hostGame) { hostGame.pz = !hostGame.pz; coverLocal = false; }
+  else if (mode === 'online' && hosting && hostGame && gameRunning()) { hostGame.pz = !hostGame.pz; coverLocal = false; publishHost(true); }
+  else if (mode === 'online' && room && !hosting && gameRunning()) { coverLocal = false; room.presence({ pz: [snap.pz ? 0 : 1, ++pzSeq] }).catch(() => {}); }
+  else coverLocal = !coverLocal;
+  updateCover();
+}
+function updateCover() {
+  const on = coverLocal || !!(snap && snap.pz);
+  const el = $('cover');
+  if (el.hidden === !on) return;
+  el.hidden = !on;
+  document.body.classList.toggle('covered', on);
+  if (on) clearMoveTarget();
+}
+const FAKE_CODE = `import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
+import { Invoice } from './entities/invoice.entity';
+import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { paginate, PageQuery } from '../common/pagination';
+
+@Injectable()
+export class InvoiceService {
+  private readonly logger = new Logger(InvoiceService.name);
+
+  constructor(
+    @InjectRepository(Invoice)
+    private readonly repo: Repository<Invoice>,
+  ) {}
+
+  async findAll(query: PageQuery) {
+    const qb = this.repo.createQueryBuilder('inv')
+      .leftJoinAndSelect('inv.items', 'item')
+      .where('inv.deletedAt IS NULL')
+      .orderBy('inv.createdAt', 'DESC');
+    if (query.status) qb.andWhere('inv.status = :status', { status: query.status });
+    return paginate(qb, query.page ?? 1, query.limit ?? 20);
+  }
+
+  async create(dto: CreateInvoiceDto, userId: number) {
+    // totals are recomputed server-side, never trusted from the client
+    const subtotal = dto.items.reduce((s, i) => s + i.price * i.qty, 0);
+    const tax = Math.round(subtotal * 0.1);
+    const invoice = this.repo.create({ ...dto, subtotal, tax, total: subtotal + tax, createdBy: userId });
+    const saved = await this.repo.save(invoice);
+    this.logger.log(\`invoice \${saved.id} created by \${userId}\`);
+    return saved;
+  }
+
+  async markPaid(ids: number[]) {
+    if (!ids.length) return { updated: 0 };
+    const res = await this.repo.update({ id: In(ids) }, { status: 'paid', paidAt: new Date() });
+    return { updated: res.affected ?? 0 };
+  }
+
+  async remove(id: number) {
+    const found = await this.repo.findOne({ where: { id } });
+    if (!found) throw new NotFoundException(\`invoice \${id} not found\`);
+    await this.repo.softDelete(id);
+  }
+}`;
+function highlightLine(s) {
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const re = /(\/\/.*$)|('[^']*'|`[^`]*`)|\b(import|from|export|class|const|private|readonly|new|async|await|return|if|throw|of|this)\b|\b(\d+(?:\.\d+)?)\b|(@?[A-Za-z_]\w*)(?=\s*\()|\b([A-Z]\w*)\b/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(s))) {
+    out += esc(s.slice(last, m.index));
+    const cls = m[1] ? 'cm' : m[2] ? 'st' : m[3] ? 'kw' : m[4] ? 'nu' : m[5] ? 'fn' : 'ty';
+    out += `<span class="c-${cls}">${esc(m[0])}</span>`;
+    last = re.lastIndex;
+  }
+  return out + esc(s.slice(last));
+}
+$('coverCode').innerHTML = FAKE_CODE.split('\n').map((l, k) => `<div><span class="ln">${k + 1}</span>${highlightLine(l) || ' '}</div>`).join('');
+
 /* ---------- main loop ---------- */
 let lastT = performance.now(), lastListT = 0;
 function frame(t) {
   const dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
   mouseSteer();
   if (mode === 'local' && hostGame) {
-    stepGame(hostGame, { p1: ctlDir(ctlA), p2: ctlDir(ctlB) }, dt, scores);
+    const li = { p1: ctlDir(ctlA), p2: ctlDir(ctlB) };
+    if (hostGame.pz) holdInputs(hostGame, li); else stepGame(hostGame, li, dt, scores);
     if (hostGame.ph === 'end' && hostGame.timer <= 0) hostGame = newGame(localSlots(), false);
     setSnap(sanitizeSnap(snapshot(hostGame, scores)));
   } else if (hosting && room) {
-    if (hostGame) {
+    hostPauseRequests();
+    if (hostGame && hostGame.pz) holdInputs(hostGame, hostInputs());
+    else if (hostGame) {
       const present = new Set(peers().map(p => p.peer));
       for (const p of hostGame.players) if (p.alive && !present.has(p.id)) p.alive = false;
       stepGame(hostGame, hostInputs(), dt, scores);
@@ -1163,6 +1278,7 @@ function frame(t) {
   } else {
     predictStep(dt);
   }
+  updateCover();
   draw(dt);
   drawMoveTarget();
   updateGutter();
@@ -1499,7 +1615,11 @@ function setDrawer(open) {
 }
 $('drawerBtn').onclick = () => setDrawer(!document.body.classList.contains('drawer-open'));
 $('scrim').onclick = () => setDrawer(false);
-addEventListener('keydown', e => { if (e.key === 'Escape') setDrawer(false); });
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.repeat) return;
+  if (document.body.classList.contains('drawer-open')) return setDrawer(false);
+  togglePause();
+});
 matchMedia('(max-width:860px)').addEventListener('change', e => { if (!e.matches) setDrawer(false); });
 $('localBtn').onclick = () => { if (mode === 'online') startLocal(); else stopLocal(); updateUI(); };
 
