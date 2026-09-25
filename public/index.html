@@ -72,6 +72,8 @@ ol.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;ga
 .list .tag{font-size:11px;color:var(--muted)}
 .list .sc{color:var(--soft);font-family:var(--mono);font-size:12px}
 .list .em{font-size:14px;filter:grayscale(1)}
+.list .kick{font:inherit;font-size:11px;line-height:1.4;padding:0 6px;border:1px solid #3c3c3c;border-radius:2px;background:transparent;color:var(--muted);cursor:pointer}
+.list .kick:hover{color:var(--red);border-color:var(--red)}
 .list li.dead .nm{text-decoration:line-through;opacity:.5}
 .list li.team0{border-left-color:var(--red)}
 .list li.team1{border-left-color:var(--blue)}
@@ -200,6 +202,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
         <li>Biểu cảm: <kbd>1</kbd>–<kbd>6</kbd></li>
         <li>Tạm dừng cả phòng, che bằng màn hình code: <kbd>Esc</kbd></li>
         <li>Chơi tiếp: <kbd>`</kbd> (phím cạnh số 1)</li>
+        <li>Chủ phòng: bấm <kbd>kick</kbd> cạnh tên để mời người chơi ra khỏi phòng</li>
         <li>Chế độ 1 máy, người 2: <kbd>mũi tên</kbd> + <kbd>Enter</kbd></li>
       </ul>
       <h3>Vật phẩm</h3>
@@ -824,6 +827,10 @@ let hostGame = null;
 let scores = {};
 let snap = null, lastSnapObj = null;
 let hostPeer = null, hostLeftNotice = false;
+// kick: the host keeps a ban list of player keys (per browser) and publishes it; a kicked client disconnects itself
+const kicked = new Set();
+let kickedOut = false;
+const isKicked = p => kicked.has(p.by) || kicked.has(p.peer);
 let pred = null, myTp = 0;
 let lb = {};                  // leaderboard cache: key -> doc
 
@@ -869,7 +876,8 @@ function createRoom(roomId, peerId, byId) {
     ws.onclose = () => { setConn(false); later(); };
     ws.onerror = () => { try { ws.close(); } catch (e) {} };
   }
-  function later() { setTimeout(connect, retry); retry = Math.min(retry * 2, 8000); }
+  let stopped = false;
+  function later() { if (stopped) return; setTimeout(connect, retry); retry = Math.min(retry * 2, 8000); }
   function handle(m) {
     if (m.t === 'full') {
       peerMap = new Map();
@@ -921,7 +929,8 @@ function createRoom(roomId, peerId, byId) {
     onPeers(fn) { peersFns.push(fn); setTimeout(() => fn({ peers: peersArr, joined: peersArr, left: [], updated: [] }), 0); return () => { const i = peersFns.indexOf(fn); if (i >= 0) peersFns.splice(i, 1); }; },
     onConnection(fn) { connFns.push(fn); setTimeout(() => fn(isConn), 0); return () => { const i = connFns.indexOf(fn); if (i >= 0) connFns.splice(i, 1); }; },
     onLeaderboard(fn) { lbFn = fn; send({ t: 'lb' }); },
-    recordLeaderboard(rows) { send({ t: 'lbrec', rows }); }
+    recordLeaderboard(rows) { send({ t: 'lbrec', rows }); },
+    leave() { stopped = true; try { if (ws) ws.close(); } catch (e) {} setConn(false); }
   };
 }
 
@@ -965,6 +974,9 @@ function onRoomChange() {
     setSnap(sanitizeSnap(h.presence.g));
   }
   if (!h && !hosting && mode === 'online' && snap) setSnap(null);
+  if (!hosting && snap && (snap.kk.includes(PLAYER_KEY) || snap.kk.includes(myPeer)) && !kickedOut) {
+    kickedOut = true; room.leave(); setSnap(null); updateUI();
+  }
   // emotes from everyone
   for (const p of peers()) {
     const em = p.presence && p.presence.em;
@@ -998,7 +1010,8 @@ function sanitizeSnap(s) {
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: s.g,
     bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
-    pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb)
+    pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb),
+    kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : []
   };
 }
 
@@ -1039,7 +1052,7 @@ function setSnap(next) {
 /* ---------- hosting ---------- */
 function startHosting() {
   if (!room || !connected) return;
-  hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear();
+  hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear(); kicked.clear();
   mode = 'online';
   publishHost(true);
   onRoomChange();
@@ -1049,7 +1062,7 @@ function stopHosting() {
   if (room) room.presence({ h: null, g: null }).catch(() => {});
 }
 function joinedPeers() {
-  return peers().filter(p => p.kind === 'viewer' && p.presence && p.presence.j === 1).slice(0, 8);
+  return peers().filter(p => p.kind === 'viewer' && p.presence && p.presence.j === 1 && !isKicked(p)).slice(0, 8);
 }
 function peerName(p) { return p.sameTab ? myName : (cleanName(p.presence.n) || 'Ẩn danh'); }
 function hostStartRound() {
@@ -1080,7 +1093,7 @@ const clampDir = v => (v === 1 || v === -1) ? v : 0;
 function hostInputs() {
   const inp = {};
   for (const p of peers()) {
-    if (p.sameTab) continue;
+    if (p.sameTab || isKicked(p)) continue;
     const pr = p.presence || {};
     const o = { dx: clampDir(pr.dx), dy: clampDir(pr.dy), b: typeof pr.b === 'number' ? pr.b : 0, bc: typeof pr.bc === 'number' ? pr.bc | 0 : -1 };
     if (typeof pr.px === 'number' && typeof pr.py === 'number') { o.px = pr.px; o.py = pr.py; o.pd = pr.pd | 0; o.tp = pr.tp | 0; o.pr = pr.pr | 0; }
@@ -1119,6 +1132,7 @@ function publishHost(force) {
   const raw = hostGame ? snapshot(hostGame, scores) : lobbySnap();
   raw.pz = hostPz ? 1 : 0;
   if (hostPz) raw.pzb = hostPzBy;
+  if (kicked.size) raw.kk = [...kicked];
   setSnap(sanitizeSnap(raw));
   if (!force && now - lastPub < 20) return;
   lastPub = now;
@@ -1172,7 +1186,7 @@ const pzSeen = new Map();   // peer -> last pause-request seq the host has handl
 function holdInputs(g, inputs) { for (const p of g.players) { const inp = inputs[p.id]; if (inp) p.lastB = inp.b; } }
 function hostPauseRequests() {
   for (const p of peers()) {
-    if (p.sameTab) continue;
+    if (p.sameTab || isKicked(p)) continue;
     const z = p.presence && p.presence.pz, seq = Array.isArray(z) ? z[1] | 0 : 0;
     const seen = pzSeen.get(p.peer);
     pzSeen.set(p.peer, seq);
@@ -1282,7 +1296,7 @@ function frame(t) {
     if (hostGame && hostPz) holdInputs(hostGame, hostInputs());
     else if (hostGame) {
       const present = new Set(peers().map(p => p.peer));
-      for (const p of hostGame.players) if (p.alive && !present.has(p.id)) p.alive = false;
+      for (const p of hostGame.players) if (p.alive && (!present.has(p.id) || kicked.has(p.id) || kicked.has(p.uid))) p.alive = false;
       stepGame(hostGame, hostInputs(), dt, scores);
       if (hostGame.justEnded) recordRound(hostGame);
       if (hostGame.ph === 'end' && hostGame.timer <= 0) { hostGame = null; updateUI(); }
@@ -1499,6 +1513,7 @@ function updateOverlay() {
     if (s.ph === 'end') return setOverlay(winnerText(s), 'Ván mới bắt đầu sau vài giây');
     return setOverlay('', '');
   }
+  if (kickedOut) return setOverlay('Bạn đã bị kick', 'Chủ phòng đã mời bạn ra khỏi phòng #' + ROOM_ID + '. Đổi mã phòng trên thanh địa chỉ để vào phòng khác.');
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
   if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Bấm "Làm chủ phòng" để tiếp tục.' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
   if (s.ph === 'lobby') {
@@ -1547,12 +1562,35 @@ function renderList() {
     if (r.downed) tags.push('cần cứu!');
     if (mode === 'online' && r.id === myPeer) tags.push('bạn');
     if (mode === 'online' && r.id === hostPeer) tags.push('chủ phòng');
+    if (hosting && kicked.has(r.id)) tags.push('đã kick');
     const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = tags.join(', ');
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score; sc.title = 'Số ván thắng trong phiên này';
-    li.append(dot, nmw, emo, tg, sc); ol.appendChild(li);
+    li.append(dot, nmw, emo, tg, sc);
+    if (mode === 'online' && hosting && r.id !== myPeer && !kicked.has(r.id)) {
+      const kb = document.createElement('button');
+      kb.className = 'kick'; kb.textContent = 'kick'; kb.dataset.kick = r.id; kb.dataset.name = r.name;
+      kb.setAttribute('aria-label', 'Kick ' + r.name);
+      li.appendChild(kb);
+    }
+    ol.appendChild(li);
   }
   resolveProfiles(accIds);
 }
+
+function kickPeer(peer) {
+  const p = peers().find(x => x.peer === peer);
+  kicked.add(peer);
+  if (p && p.by) kicked.add(p.by);
+  if (hostGame) for (const q of hostGame.players) if (q.id === peer) { q.alive = false; q.down = 0; }
+  publishHost(true); renderList();
+}
+// the list is rebuilt every 250ms, so listen on the container and act on pointerdown (a click could lose its target)
+$('plist').addEventListener('pointerdown', e => {
+  const b = e.target.closest('button.kick');
+  if (!b || !hosting) return;
+  e.preventDefault();
+  if (confirm('Kick ' + b.dataset.name + ' khỏi phòng?')) kickPeer(b.dataset.kick);
+});
 
 function renderLeaderboard() {
   const box = $('lbBody'); box.textContent = '';
