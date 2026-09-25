@@ -21,7 +21,7 @@
 *,*::before,*::after{box-sizing:inherit}
 html,body{margin:0;height:100%}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
-body{background:var(--chrome);color:var(--ink);font-family:var(--ui);font-size:13px;line-height:1.4;display:flex;flex-direction:column;min-height:100%}
+body{background:var(--chrome);color:var(--ink);font-family:var(--ui);font-size:13px;line-height:1.4;display:flex;flex-direction:column;height:100dvh;overflow:hidden}
 .titlebar{display:flex;align-items:center;gap:14px;height:35px;padding:0 12px;background:var(--chrome);border-bottom:1px solid var(--line)}
 .lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%;display:block;background:#3c3c3c}
 h1{margin:0;font-size:13px;font-weight:400;color:var(--soft);letter-spacing:0;flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -31,9 +31,13 @@ h1{margin:0;font-size:13px;font-weight:400;color:var(--soft);letter-spacing:0;fl
 .tabbar{display:flex;background:var(--chrome);border-bottom:1px solid var(--line)}
 .tab{height:35px;display:flex;align-items:center;padding:0 12px;background:var(--bg);border-right:1px solid var(--line);border-top:1px solid var(--soft);margin-bottom:-1px;color:var(--ink);font-size:13px}
 .tab .tk-cm{margin-left:8px}
-.layout{flex:1;display:grid;grid-template-columns:300px minmax(0,1fr);background:var(--bg)}
-.side{border-right:1px solid var(--line);padding:10px 12px 14px 20px;display:flex;flex-direction:column;gap:16px;background:var(--chrome);min-width:0}
-.stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px;min-width:0}
+.layout{flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);background:var(--bg)}
+.side{border-right:1px solid var(--line);padding:10px 12px 14px 20px;display:flex;flex-direction:column;gap:16px;background:var(--chrome);min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#424242 transparent}
+.side > *{flex:none}
+.drawer-btn{display:none;font:inherit;font-size:16px;line-height:1;border:0;background:transparent;color:var(--soft);border-radius:4px;padding:4px 6px;cursor:pointer}
+.drawer-btn:hover{background:var(--panel)}
+.scrim{display:none}
+.stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px;min-width:0;min-height:0;overflow-y:auto}
 .sec h2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--soft);margin:0 0 8px}
 .sec[hidden]{display:none}
 label.f{display:block;font-size:13px;color:var(--soft);margin:8px 0 4px}
@@ -89,8 +93,8 @@ table.lb{width:100%;border-collapse:collapse;font-size:12px}
 .help .ico{filter:grayscale(1);display:inline-block;width:18px}
 .help kbd{font-family:var(--mono);font-size:11px;color:var(--soft);background:var(--input);border-radius:2px;padding:0 3px}
 .editor{display:flex;width:min(100%, calc((100dvh - 170px) * 16 / 13));min-width:260px;border:1px solid var(--line);overflow:hidden;background:var(--chrome)}
-.gutter{flex:none;width:calc(var(--t) * .9);display:flex;flex-direction:column;background:var(--bg);user-select:none}
-.gutter span{height:var(--t);display:flex;align-items:center;justify-content:flex-end;padding-right:10px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.gutter{flex:none;width:max(26px, calc(var(--t) * .9));display:flex;flex-direction:column;background:var(--bg);user-select:none}
+.gutter span{height:var(--t);display:flex;align-items:center;justify-content:flex-end;padding-right:min(10px, calc(var(--t) * .2));font-family:var(--mono);font-size:min(12px, max(10px, calc(var(--t) * .45)));color:var(--muted)}
 .gutter span.cur{color:var(--ink)}
 .board-wrap{position:relative;flex:1;min-width:0}
 canvas{display:block;width:100%;height:auto;touch-action:none}
@@ -113,16 +117,22 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
 @media (pointer:coarse){ .pad{display:flex} }
 @media (max-width:860px){
   .layout{grid-template-columns:1fr}
-  .stage{order:-1;padding:12px}
-  .side{border-right:0;border-top:1px solid var(--line);padding:12px}
+  .stage{padding:12px}
+  .drawer-btn{display:block}
+  .lights{display:none}
+  .side{position:fixed;top:0;bottom:0;left:0;z-index:20;width:min(300px,85vw);padding:12px 12px calc(12px + env(safe-area-inset-bottom,0px));border-right:1px solid var(--line);box-shadow:4px 0 16px rgba(0,0,0,.4);transform:translateX(-100%);visibility:hidden;transition:transform .2s ease,visibility 0s .2s}
+  body.drawer-open .side{transform:none;visibility:visible;transition:transform .2s ease}
+  .scrim{display:block;position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s}
+  body.drawer-open .scrim{opacity:1;pointer-events:auto}
   .editor{width:100%}
   .statusbar{height:auto;padding:3px 10px}
 }
-@media (prefers-reduced-motion: reduce){ .overlay{transition:none} }
+@media (prefers-reduced-motion: reduce){ .overlay,.side,.scrim{transition:none!important} }
 </style>
 </head>
 <body>
 <div class="titlebar">
+  <button class="drawer-btn" id="drawerBtn" aria-label="Mở bảng điều khiển" aria-expanded="false" aria-controls="side">☰</button>
   <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
   <h1>bom_tan.js — workspace</h1>
   <button id="muteBtn" aria-label="Tắt âm thanh">🔊</button>
@@ -131,7 +141,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
 
 
 <main class="layout">
-  <aside class="side">
+  <aside class="side" id="side">
     <section class="sec">
       <h2>bạn</h2>
       <label class="f" for="name"><span class="tk-kw">let</span>tênTrongGame =</label>
@@ -197,6 +207,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
       </ul>
     </section>
   </aside>
+  <div class="scrim" id="scrim"></div>
   <section class="stage">
     <div class="editor">
       <div class="gutter" id="gutter" aria-hidden="true"></div>
@@ -1481,6 +1492,15 @@ addEventListener('hashchange', () => location.reload());
 $('modeBtn').onclick = () => { hostTeams = !hostTeams; publishHost(true); updateUI(); };
 $('startBtn').onclick = () => { hostStartRound(); publishHost(true); updateUI(); };
 $('lobbyBtn').onclick = () => { hostGame = null; publishHost(true); updateUI(); };
+function setDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  $('drawerBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  $('drawerBtn').setAttribute('aria-label', open ? 'Đóng bảng điều khiển' : 'Mở bảng điều khiển');
+}
+$('drawerBtn').onclick = () => setDrawer(!document.body.classList.contains('drawer-open'));
+$('scrim').onclick = () => setDrawer(false);
+addEventListener('keydown', e => { if (e.key === 'Escape') setDrawer(false); });
+matchMedia('(max-width:860px)').addEventListener('change', e => { if (!e.matches) setDrawer(false); });
 $('localBtn').onclick = () => { if (mode === 'online') startLocal(); else stopLocal(); updateUI(); };
 
 updateUI();
