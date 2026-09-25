@@ -968,7 +968,7 @@ function predictStep(dt) {
   if (mode !== 'online' || hosting || !room || !snap || snap.ph !== 'play') { pred = null; return; }
   const me = snap.pl.find(p => p.id === myPeer);
   if (!me || !me.alive) { pred = null; return; }
-  if (!pred || pred.rid !== snap.rid) pred = { rid: snap.rid, x: me.x, y: me.y, dir: me.dir, pass: [], lock: -1, err: 0, bombs: new Set() };
+  if (!pred || pred.rid !== snap.rid) pred = { rid: snap.rid, x: me.x, y: me.y, dir: me.dir, pass: [], lock: -1, err: 0, tpT: 0, bombs: new Set() };
   if (snap.g !== predGridStr) { predGridStr = snap.g; predGrid = snap.g.split(''); }
   const bombs = snap.bm.map(b => ({ id: b.i, i: b.i }));
   const ci = idx(Math.round(pred.x), Math.round(pred.y));
@@ -980,7 +980,7 @@ function predictStep(dt) {
   if (d.dx || d.dy) {
     pred.dir = d.dx > 0 ? 1 : d.dx < 0 ? 3 : d.dy > 0 ? 2 : 0;
     tryMove(view, pp, d.dx, d.dy, speedOf(me) * dt);
-    if (portalCheck(pp)) { myTp++; sfx.teleport(); }
+    if (portalCheck(pp)) { myTp++; pred.tpT = 1; sfx.teleport(); }
   }
   pred.x = pp.x; pred.y = pp.y; pred.lock = pp.lock;
   const ni = idx(Math.round(pred.x), Math.round(pred.y));
@@ -988,8 +988,11 @@ function predictStep(dt) {
   // reconcile with the host
   const err = Math.hypot(me.x - pred.x, me.y - pred.y);
   const moving = !!(d.dx || d.dy);
-  if (err > (moving ? 1.4 : 0.3)) pred.err += dt; else pred.err = 0;
-  if (err > 3.5 || pred.err > (moving ? 0.35 : 0.5)) { pred.x = me.x; pred.y = me.y; pred.err = 0; pred.pass = []; pred.lock = -1; }
+  // after a teleport the host snapshot still shows us at the entry portal for about one round trip;
+  // snapping back then would re-enter the portal and loop, so wait for the host to catch up
+  if (pred.tpT > 0) { pred.tpT = err < 1.4 ? 0 : pred.tpT - dt; pred.err = 0; }
+  else if (err > (moving ? 1.4 : 0.3)) pred.err += dt; else pred.err = 0;
+  if (pred.tpT <= 0 && (err > 3.5 || pred.err > (moving ? 0.35 : 0.5))) { pred.x = me.x; pred.y = me.y; pred.err = 0; pred.pass = []; pred.lock = -1; }
   room.presence({ px: Math.round(pred.x * 100), py: Math.round(pred.y * 100), pd: pred.dir, tp: myTp, pr: pred.rid }).catch(() => {});
 }
 
@@ -1012,9 +1015,7 @@ function frame(t) {
       for (const p of hostGame.players) if (p.alive && !present.has(p.id)) p.alive = false;
       stepGame(hostGame, hostInputs(), dt, scores);
       if (hostGame.justEnded) recordRound(hostGame);
-      if (hostGame.ph === 'end' && hostGame.timer <= 0) {
-        if (joinedPeers().length >= 2) hostStartRound(); else hostGame = null;
-      }
+      if (hostGame.ph === 'end' && hostGame.timer <= 0) { hostGame = null; updateUI(); }
     }
     publishHost(false);
   } else {
@@ -1234,7 +1235,7 @@ function updateOverlay() {
     if (me && s.md === 't' && (me.team === 0 || me.team === 1)) sub = 'Bạn ở ' + TEAM_NAMES[me.team] + '. Sẵn sàng!';
     return setOverlay(String(s.tm || 1), sub);
   }
-  if (s.ph === 'end') return setOverlay(winnerText(s), 'Ván tiếp theo sắp bắt đầu');
+  if (s.ph === 'end') return setOverlay(winnerText(s), 'Sắp về sảnh chờ');
   setOverlay('', '');
 }
 
