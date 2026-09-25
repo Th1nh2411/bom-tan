@@ -224,7 +224,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
   <section class="stage">
     <div class="editor">
       <div class="cover" id="cover" hidden>
-        <div class="cover-tabs"><span class="ct on">invoice.service.ts</span><span class="ct">invoice.controller.ts</span><span class="pz">⏸ Pause · Esc để tiếp tục</span></div>
+        <div class="cover-tabs"><span class="ct on">invoice.service.ts</span><span class="ct">invoice.controller.ts</span><span class="pz" id="coverPz">⏸ Pause · Esc để tiếp tục</span></div>
         <div class="cover-crumbs">src › invoice › invoice.service.ts › InvoiceService</div>
         <div class="cover-code" id="coverCode"></div>
       </div>
@@ -996,7 +996,7 @@ function sanitizeSnap(s) {
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: s.g,
     bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
-    pl, w: String(s.w || ''), pz: s.pz === 1
+    pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb)
   };
 }
 
@@ -1116,6 +1116,7 @@ function publishHost(force) {
   const now = performance.now();
   const raw = hostGame ? snapshot(hostGame, scores) : lobbySnap();
   raw.pz = hostPz ? 1 : 0;
+  if (hostPz) raw.pzb = hostPzBy;
   setSnap(sanitizeSnap(raw));
   if (!force && now - lastPub < 20) return;
   lastPub = now;
@@ -1163,7 +1164,7 @@ function startLocal() { mode = 'local'; scores = {}; pred = null; hostGame = new
 function stopLocal() { mode = 'online'; hostGame = null; snap = null; onRoomChange(); }
 
 /* ---------- pause (Esc): anyone can pause the whole room; the board is covered by a code tab ---------- */
-let coverLocal = false, pzSeq = 0, hostPz = false;   // hostPz: room-wide pause, owned by the host (lobby or in game)
+let coverLocal = false, pzSeq = 0, hostPz = false, hostPzBy = '';   // hostPz: room-wide pause, owned by the host (lobby or in game)
 const pzSeen = new Map();   // peer -> last pause-request seq the host has handled
 // while paused, keep bomb counters in sync so presses made during the pause do not fire on resume
 function holdInputs(g, inputs) { for (const p of g.players) { const inp = inputs[p.id]; if (inp) p.lastB = inp.b; } }
@@ -1174,7 +1175,7 @@ function hostPauseRequests() {
     const seen = pzSeen.get(p.peer);
     pzSeen.set(p.peer, seq);
     if (seen === undefined || seen === seq) continue;
-    hostPz = z[0] === 1;
+    hostPz = z[0] === 1; hostPzBy = peerName(p);
     publishHost(true);
   }
 }
@@ -1183,13 +1184,16 @@ function togglePause() {
   coverLocal = false;
   if (wasLocal && !(snap && snap.pz)) { /* only this screen was covered: just uncover */ }
   else if (mode === 'local' && hostGame) hostGame.pz = !hostGame.pz;
-  else if (mode === 'online' && hosting) { hostPz = !hostPz; publishHost(true); }
+  else if (mode === 'online' && hosting) { hostPz = !hostPz; hostPzBy = myName; publishHost(true); }
   else if (mode === 'online' && room && snap) room.presence({ pz: [snap.pz ? 0 : 1, ++pzSeq] }).catch(() => {});
   else coverLocal = true;   // nobody is hosting yet: cover this screen only
   updateCover();
 }
 function updateCover() {
   const on = coverLocal || !!(snap && snap.pz);
+  const by = !coverLocal && snap && snap.pz ? snap.pzb : '';
+  const label = '⏸ Pause' + (by ? ' bởi ' + by : '') + ' · Esc để tiếp tục';
+  if ($('coverPz').textContent !== label) $('coverPz').textContent = label;
   const el = $('cover');
   if (el.hidden === !on) return;
   el.hidden = !on;
