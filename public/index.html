@@ -1037,7 +1037,7 @@ function setSnap(next) {
 /* ---------- hosting ---------- */
 function startHosting() {
   if (!room || !connected) return;
-  hosting = true; hostGame = null; scores = {}; pred = null;
+  hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear();
   mode = 'online';
   publishHost(true);
   onRoomChange();
@@ -1115,6 +1115,7 @@ let lastPub = 0;
 function publishHost(force) {
   const now = performance.now();
   const raw = hostGame ? snapshot(hostGame, scores) : lobbySnap();
+  raw.pz = hostPz ? 1 : 0;
   setSnap(sanitizeSnap(raw));
   if (!force && now - lastPub < 20) return;
   lastPub = now;
@@ -1162,7 +1163,7 @@ function startLocal() { mode = 'local'; scores = {}; pred = null; hostGame = new
 function stopLocal() { mode = 'online'; hostGame = null; snap = null; onRoomChange(); }
 
 /* ---------- pause (Esc): anyone can pause the whole room; the board is covered by a code tab ---------- */
-let coverLocal = false, pzSeq = 0;
+let coverLocal = false, pzSeq = 0, hostPz = false;   // hostPz: room-wide pause, owned by the host (lobby or in game)
 const pzSeen = new Map();   // peer -> last pause-request seq the host has handled
 // while paused, keep bomb counters in sync so presses made during the pause do not fire on resume
 function holdInputs(g, inputs) { for (const p of g.players) { const inp = inputs[p.id]; if (inp) p.lastB = inp.b; } }
@@ -1172,17 +1173,19 @@ function hostPauseRequests() {
     const z = p.presence && p.presence.pz, seq = Array.isArray(z) ? z[1] | 0 : 0;
     const seen = pzSeen.get(p.peer);
     pzSeen.set(p.peer, seq);
-    if (seen === undefined || seen === seq || !hostGame) continue;
-    hostGame.pz = z[0] === 1;
+    if (seen === undefined || seen === seq) continue;
+    hostPz = z[0] === 1;
     publishHost(true);
   }
 }
-const gameRunning = () => !!(snap && (snap.ph === 'count' || snap.ph === 'play'));
 function togglePause() {
-  if (mode === 'local' && hostGame) { hostGame.pz = !hostGame.pz; coverLocal = false; }
-  else if (mode === 'online' && hosting && hostGame && gameRunning()) { hostGame.pz = !hostGame.pz; coverLocal = false; publishHost(true); }
-  else if (mode === 'online' && room && !hosting && gameRunning()) { coverLocal = false; room.presence({ pz: [snap.pz ? 0 : 1, ++pzSeq] }).catch(() => {}); }
-  else coverLocal = !coverLocal;
+  const wasLocal = coverLocal;
+  coverLocal = false;
+  if (wasLocal && !(snap && snap.pz)) { /* only this screen was covered: just uncover */ }
+  else if (mode === 'local' && hostGame) hostGame.pz = !hostGame.pz;
+  else if (mode === 'online' && hosting) { hostPz = !hostPz; publishHost(true); }
+  else if (mode === 'online' && room && snap) room.presence({ pz: [snap.pz ? 0 : 1, ++pzSeq] }).catch(() => {});
+  else coverLocal = true;   // nobody is hosting yet: cover this screen only
   updateCover();
 }
 function updateCover() {
@@ -1266,7 +1269,7 @@ function frame(t) {
     setSnap(sanitizeSnap(snapshot(hostGame, scores)));
   } else if (hosting && room) {
     hostPauseRequests();
-    if (hostGame && hostGame.pz) holdInputs(hostGame, hostInputs());
+    if (hostGame && hostPz) holdInputs(hostGame, hostInputs());
     else if (hostGame) {
       const present = new Set(peers().map(p => p.peer));
       for (const p of hostGame.players) if (p.alive && !present.has(p.id)) p.alive = false;
@@ -1606,7 +1609,7 @@ $('inviteBtn').onclick = async () => {
 };
 addEventListener('hashchange', () => location.reload());
 $('modeBtn').onclick = () => { hostTeams = !hostTeams; publishHost(true); updateUI(); };
-$('startBtn').onclick = () => { hostStartRound(); publishHost(true); updateUI(); };
+$('startBtn').onclick = () => { hostPz = false; hostStartRound(); publishHost(true); updateUI(); };
 $('lobbyBtn').onclick = () => { hostGame = null; publishHost(true); updateUI(); };
 function setDrawer(open) {
   document.body.classList.toggle('drawer-open', open);
