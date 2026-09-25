@@ -183,6 +183,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
         <li><span class="ico">🔥</span> nổ xa hơn</li>
         <li><span class="ico">👟</span> chạy nhanh hơn</li>
         <li><span class="ico">🧤</span> đi vào bom để đá nó</li>
+        <li><span class="ico">🛡️</span> khiên: đỡ 1 lần trúng bom, sau đó bất tử 1 giây</li>
       </ul>
       <h3>Cổng xoáy</h3>
       <ul>
@@ -229,8 +230,8 @@ const idx = (x, y) => y * W + x;
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
 const SPAWNS = [[1,1],[13,11],[13,1],[1,11],[7,1],[7,11],[1,5],[13,7]];
 const PORTALS = [[idx(5,3), idx(9,9)], [idx(9,3), idx(5,9)]];
-const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 4, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, REVIVE_DIST = 0.75;
-const POWERS = 'bfsk';
+const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 4, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
+const POWERS = 'bfskh';   // h = shield: absorbs one hit, then 1s of invulnerability
 const speedOf = p => 3.3 + 0.6 * p.spd;
 
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
@@ -252,13 +253,13 @@ function newGame(slots, teams) {
     if (grid[i] !== '.' || keepClear(x, y)) continue;
     if (Math.random() < 0.72) {
       grid[i] = 'x';
-      if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.32 ? 'b' : r < 0.64 ? 'f' : r < 0.82 ? 's' : 'k'; }
+      if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.28 ? 'b' : r < 0.56 ? 'f' : r < 0.72 ? 's' : r < 0.86 ? 'k' : 'h'; }
     }
   }
   const players = slots.map((s, k) => ({
     id: s.id, uid: s.uid || null, name: s.name, color: s.color, team: teams ? s.team : k,
     x: SPAWNS[k][0], y: SPAWNS[k][1], alive: true,
-    maxB: 1, fire: 2, spd: 0, kick: false, dir: 2, down: 0, downBy: null, inv: 0,
+    maxB: 1, fire: 2, spd: 0, kick: false, shield: false, dir: 2, down: 0, downBy: null, inv: 0,
     lastB: null, lastTp: null, pass: [], lock: -1
   }));
   return {
@@ -476,6 +477,7 @@ function stepGame(g, inputs, dt, scores) {
     else if (c === 'f') { p.fire = Math.min(8, p.fire + 1); g.grid[ci] = '.'; }
     else if (c === 's') { p.spd = Math.min(5, p.spd + 1); g.grid[ci] = '.'; }
     else if (c === 'k') { p.kick = true; g.grid[ci] = '.'; }
+    else if (c === 'h') { p.shield = true; g.grid[ci] = '.'; }
   }
 
   for (const b of g.bombs) if (b.vx || b.vy) slideBomb(g, b, dt);
@@ -494,6 +496,7 @@ function stepGame(g, inputs, dt, scores) {
         if (!g.teams || teamOf(o) !== p.team) { killer = o; break; }
       }
       if (killer === null) continue;
+      if (p.shield) { p.shield = false; p.inv = SHIELD_INV; continue; }
       p.alive = false;
       if (g.teams) { p.down = DOWN_T; p.downBy = killer; }   // knocked down, teammates have 3s to rescue
       else g.kills.push([killer, p.id]);
@@ -543,7 +546,7 @@ function snapshot(g, scores) {
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
-    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0]),
+    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0]),
     w: g.winner || ''
   };
 }
@@ -956,7 +959,7 @@ function sanitizeSnap(s) {
       id: String(a[0]), x: (+a[1] || 0) / 100, y: (+a[2] || 0) / 100, alive: a[3] === 1, downed: a[3] === 2,
       downT: Math.max(0, (+a[11] || 0) / 10), inv: !!a[12],
       color, name: cleanName(a[5]) || 'Ẩn danh', dir: a[6] | 0, score: a[7] | 0,
-      team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10]
+      team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10], shield: !!a[13]
     };
   });
   return {
@@ -990,6 +993,7 @@ function setSnap(next) {
       if (q.alive && p.downed) sfx.down();
       else if ((q.alive || q.downed) && !p.alive && !p.downed) sfx.death();
       else if (q.downed && p.alive) sfx.revive();
+      else if (q.shield && !p.shield && p.alive) sfx.down();
       else if (p.alive && Math.hypot(p.x - q.x, p.y - q.y) > 2.5 && !(mode === 'online' && p.id === myPeer && pred)) sfx.teleport();
     }
     for (let i = 0; i < W * H; i++) if (POWERS.includes(prev.g[i]) && next.g[i] === '.' && !next.fl.has(i)) { sfx.pickup(); break; }
@@ -1209,7 +1213,7 @@ function drawTile(c, x, y, now) {
     ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1, T * .05); ctx.stroke();
     ctx.font = `${Math.round(T * .44)}px ${EMOJI_FONT}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤' }[c], px + T / 2, py + T / 2 + bob + T * .02);
+    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤', h: '🛡️' }[c], px + T / 2, py + T / 2 + bob + T * .02);
   }
 }
 
@@ -1296,6 +1300,7 @@ function draw(dt) {
     ctx.fillStyle = p.color; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1.5, T * .07);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
     if (isMe) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, T * .04); ctx.beginPath(); ctx.arc(cx, cy, r + T * .08, 0, 7); ctx.stroke(); }
+    if (p.shield && p.alive) { ctx.strokeStyle = '#9d9d9d'; ctx.lineWidth = Math.max(2, T * .07); ctx.beginPath(); ctx.arc(cx, cy, r + T * .15, 0, 7); ctx.stroke(); }
     if (p.kick && p.alive) { ctx.font = `${Math.round(T * .26)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; fillEmoji('🧤', cx + r * .85, cy + r * .7); }
     const ex = [0, 1, 0, -1][dir] * r * .35, ey = [-1, 0, 1, 0][dir] * r * .3;
     if (p.alive) {
