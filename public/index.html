@@ -199,6 +199,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
         <li>Đặt bom: <kbd>Space</kbd></li>
         <li>Biểu cảm: <kbd>1</kbd>–<kbd>6</kbd></li>
         <li>Tạm dừng cả phòng, che bằng màn hình code: <kbd>Esc</kbd></li>
+        <li>Chơi tiếp: <kbd>`</kbd> (phím cạnh số 1)</li>
         <li>Chế độ 1 máy, người 2: <kbd>mũi tên</kbd> + <kbd>Enter</kbd></li>
       </ul>
       <h3>Vật phẩm</h3>
@@ -225,7 +226,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
   <section class="stage">
     <div class="editor">
       <div class="cover" id="cover" hidden>
-        <div class="cover-tabs"><span class="ct on">invoice.service.ts</span><span class="ct">invoice.controller.ts</span><span class="pz" id="coverPz">⏸ Pause · Esc để tiếp tục</span></div>
+        <div class="cover-tabs"><span class="ct on">invoice.service.ts</span><span class="ct">invoice.controller.ts</span><span class="pz" id="coverPz">⏸ Pause · ` để tiếp tục</span></div>
         <div class="cover-crumbs">src › invoice › invoice.service.ts › InvoiceService</div>
         <div class="cover-code" id="coverCode"></div>
       </div>
@@ -1180,14 +1181,13 @@ function hostPauseRequests() {
     publishHost(true);
   }
 }
-function togglePause() {
-  const wasLocal = coverLocal;
-  coverLocal = false;
-  if (wasLocal && !(snap && snap.pz)) { /* only this screen was covered: just uncover */ }
-  else if (mode === 'local' && hostGame) hostGame.pz = !hostGame.pz;
-  else if (mode === 'online' && hosting) { hostPz = !hostPz; hostPzBy = myName; publishHost(true); }
-  else if (mode === 'online' && room && snap) room.presence({ pz: [snap.pz ? 0 : 1, ++pzSeq] }).catch(() => {});
-  else coverLocal = true;   // nobody is hosting yet: cover this screen only
+// Esc pauses, ` resumes; each key only goes one way so a stray press never undoes the other
+function setPause(want) {
+  if (!want) coverLocal = false;
+  if (mode === 'local' && hostGame) hostGame.pz = want;
+  else if (mode === 'online' && hosting) { if (hostPz !== want) { hostPz = want; if (want) hostPzBy = myName; publishHost(true); } }
+  else if (mode === 'online' && room && snap) { if (snap.pz !== want) room.presence({ pz: [want ? 1 : 0, ++pzSeq] }).catch(() => {}); }
+  else if (want) coverLocal = true;   // nobody is hosting yet: cover this screen only
   updateCover();
 }
 function updateCover() {
@@ -1198,7 +1198,7 @@ function updateCover() {
     pzEl.dataset.by = by;
     pzEl.textContent = by ? '⏸ Pause bởi ' : '⏸ Pause';
     if (by) { const b = document.createElement('b'); b.textContent = by; pzEl.append(b); }
-    pzEl.append(' · Esc để tiếp tục');
+    pzEl.append(' · ` để tiếp tục');
   }
   const el = $('cover');
   if (el.hidden === !on) return;
@@ -1629,9 +1629,11 @@ function setDrawer(open) {
 $('drawerBtn').onclick = () => setDrawer(!document.body.classList.contains('drawer-open'));
 $('scrim').onclick = () => setDrawer(false);
 addEventListener('keydown', e => {
-  if (e.key !== 'Escape' || e.repeat) return;
+  if (e.repeat) return;
+  if (e.code === 'Backquote') { e.preventDefault(); return setPause(false); }
+  if (e.key !== 'Escape') return;
   if (document.body.classList.contains('drawer-open')) return setDrawer(false);
-  togglePause();
+  setPause(true);
 });
 matchMedia('(max-width:860px)').addEventListener('change', e => { if (!e.matches) setDrawer(false); });
 $('localBtn').onclick = () => { if (mode === 'online') startLocal(); else stopLocal(); updateUI(); };
