@@ -327,8 +327,10 @@ function explode(g, b) {
   addFlame(g, b.i, b.owner);
   const bx = b.i % W, by = (b.i / W) | 0;
   for (const [dx, dy] of DIRS) {
+    // a flame that enters a portal comes out of the paired portal and keeps going (once per ray)
+    let x = bx, y = by, jumped = false;
     for (let r = 1; r <= b.r; r++) {
-      const x = bx + dx * r, y = by + dy * r;
+      x += dx; y += dy;
       if (x < 0 || y < 0 || x >= W || y >= H) break;
       const i = idx(x, y), c = g.grid[i];
       if (c === '#' || c === 'X') break;
@@ -337,6 +339,13 @@ function explode(g, b) {
       if (POWERS.includes(c)) { g.grid[i] = '.'; break; }
       const ob = g.bombs.find(o => o.i === i);
       if (ob) { explode(g, ob); break; }
+      const ex = jumped ? -1 : portalExit(i);
+      if (ex >= 0) {
+        jumped = true; x = ex % W; y = (ex / W) | 0;
+        addFlame(g, ex, b.owner);
+        const eb = g.bombs.find(o => o.i === ex);
+        if (eb) { explode(g, eb); break; }
+      }
     }
   }
 }
@@ -632,8 +641,8 @@ addEventListener('keydown', e => {
   if (!authed) return;
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const local = mode === 'local';
-  if (KEYS_A[e.code]) { press(ctlA, e.code, KEYS_A[e.code]); e.preventDefault(); }
-  else if (KEYS_B[e.code]) { press(local ? ctlB : ctlA, e.code, KEYS_B[e.code]); e.preventDefault(); }
+  if (KEYS_A[e.code]) { clearMoveTarget(); press(ctlA, e.code, KEYS_A[e.code]); e.preventDefault(); }
+  else if (KEYS_B[e.code]) { if (!local) clearMoveTarget(); press(local ? ctlB : ctlA, e.code, KEYS_B[e.code]); e.preventDefault(); }
   else if (e.code === 'Space') { if (!e.repeat) bombPress(ctlA); e.preventDefault(); }
   else if (e.code === 'Enter' || e.code === 'NumpadEnter') {
     if (e.target && e.target.tagName === 'BUTTON') return;
@@ -645,7 +654,7 @@ addEventListener('keyup', e => {
   if (KEYS_A[e.code]) release(ctlA, e.code);
   if (KEYS_B[e.code]) { release(ctlA, e.code); release(ctlB, e.code); }
 });
-addEventListener('blur', () => { ctlA.held = []; ctlB.held = []; inputChanged(); });
+addEventListener('blur', () => { moveTarget = -1; mouseDir = null; ctlA.held = []; ctlB.held = []; inputChanged(); });
 
 document.querySelectorAll('.dpad button').forEach(btn => {
   const d = btn.dataset.d.split(',').map(Number), key = 'pad' + btn.dataset.d;
@@ -656,6 +665,78 @@ document.querySelectorAll('.dpad button').forEach(btn => {
 const bombBtn = $('bombBtn');
 bombBtn.addEventListener('pointerdown', e => { e.preventDefault(); bombBtn.classList.add('on'); bombPress(ctlA); });
 ['pointerup','pointercancel','pointerleave'].forEach(t => bombBtn.addEventListener(t, () => bombBtn.classList.remove('on')));
+
+/* ---------- right-click to walk: BFS to the clicked cell, steer ctlA one cell at a time ---------- */
+let moveTarget = -1, mouseDir = null;
+function clearMoveTarget() { moveTarget = -1; setMouseDir(null); }
+function setMouseDir(d) {
+  const same = d && mouseDir ? d[0] === mouseDir[0] && d[1] === mouseDir[1] : d === mouseDir;
+  if (same) return;
+  mouseDir = d;
+  ctlA.held = ctlA.held.filter(h => h[2] !== 'mouse');
+  if (d) ctlA.held.push([d[0], d[1], 'mouse']);
+  inputChanged();
+}
+function myPos() {
+  if (!snap || (snap.ph !== 'play' && snap.ph !== 'count')) return null;
+  if (mode === 'online' && !hosting) return pred ? { x: pred.x, y: pred.y } : null;
+  const me = snap.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
+  return me && me.alive ? { x: me.x, y: me.y } : null;
+}
+function pathNext(start, goal, avoidPortals) {
+  const bombs = new Set(snap.bm.map(b => b.i)), portals = new Set(PORTALS.flat());
+  const prev = new Int16Array(W * H).fill(-1);
+  prev[start] = start;
+  const q = [start];
+  for (let h = 0; h < q.length; h++) {
+    const c = q[h];
+    if (c === goal) break;
+    for (const [dx, dy] of DIRS) {
+      const x = c % W + dx, y = ((c / W) | 0) + dy, n = idx(x, y);
+      if (x < 0 || y < 0 || x >= W || y >= H || prev[n] !== -1) continue;
+      if (isWallish(snap.g[n]) || bombs.has(n) || (avoidPortals && portals.has(n) && n !== goal)) continue;
+      prev[n] = c; q.push(n);
+    }
+  }
+  if (prev[goal] === -1) return -1;
+  let c = goal;
+  while (prev[c] !== start) c = prev[c];
+  return c;
+}
+function mouseSteer() {
+  if (moveTarget < 0) return;
+  const pos = myPos();
+  if (!pos) { if (!snap || snap.ph !== 'count') clearMoveTarget(); return; }
+  const cx = Math.round(pos.x), cy = Math.round(pos.y), here = idx(cx, cy);
+  const tx = moveTarget % W, ty = (moveTarget / W) | 0;
+  if (here === moveTarget) {
+    // walk to the centre of the goal cell, then stop
+    const ox = tx - pos.x, oy = ty - pos.y;
+    if (Math.abs(ox) > 0.12) return setMouseDir([Math.sign(ox), 0]);
+    if (Math.abs(oy) > 0.12) return setMouseDir([0, Math.sign(oy)]);
+    return clearMoveTarget();
+  }
+  let next = pathNext(here, moveTarget, true);
+  if (next < 0) next = pathNext(here, moveTarget, false);
+  if (next < 0) return clearMoveTarget();
+  setMouseDir([next % W - cx, ((next / W) | 0) - cy]);
+}
+function onRightClick(e) {
+  e.preventDefault();
+  if (!snap) return;
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * H);
+  if (x < 0 || y < 0 || x >= W || y >= H || snap.g[idx(x, y)] === '#') return;
+  moveTarget = idx(x, y);
+  mouseSteer();
+}
+function drawMoveTarget() {
+  if (moveTarget < 0) return;
+  const cx = (moveTarget % W) * T + T / 2, cy = ((moveTarget / W) | 0) * T + T / 2;
+  const r = T * (.3 + Math.sin(performance.now() / 150) * .04);
+  ctx.strokeStyle = '#9ece6a'; ctx.lineWidth = Math.max(1.5, T * .06);
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke();
+}
 
 /* ---------- state ---------- */
 let room = null, db = null, userCap = null, connected = false, myPeer = null, myUid = null, authed = true;
@@ -746,12 +827,25 @@ function createRoom(roomId, peerId, byId) {
       if (lbFn) lbFn(Array.isArray(m.rows) ? m.rows : []);
     }
   }
-  setInterval(() => { if (pending && isConn) { send({ t: 'p', p: pending }); pending = null; } }, 33);
+  // send patches as soon as they happen, but at most once per ~16ms (one frame)
+  let lastFlush = 0, flushTimer = null;
+  function flush() {
+    flushTimer = null;
+    if (!pending || !isConn) return;
+    send({ t: 'p', p: pending }); pending = null; lastFlush = performance.now();
+  }
+  function scheduleFlush() {
+    if (flushTimer) return;
+    const wait = 16 - (performance.now() - lastFlush);
+    if (wait <= 0) flush(); else flushTimer = setTimeout(flush, wait);
+  }
+  setInterval(flush, 100);
   connect();
   return {
     presence(patch) {
       mine = mergeP(mine, patch);
       pending = { ...(pending || {}), ...patch };
+      scheduleFlush();
       peerMap.set(peerId, entry(peerId, byId, mine));
       peersArr = Object.freeze([...peerMap.values()]);
       return Promise.resolve();
@@ -957,7 +1051,7 @@ function publishHost(force) {
   const now = performance.now();
   const raw = hostGame ? snapshot(hostGame, scores) : lobbySnap();
   setSnap(sanitizeSnap(raw));
-  if (!force && now - lastPub < 33) return;
+  if (!force && now - lastPub < 20) return;
   lastPub = now;
   room.presence({ h: 1, g: raw }).catch(() => {});
 }
@@ -1005,6 +1099,7 @@ function stopLocal() { mode = 'online'; hostGame = null; snap = null; onRoomChan
 let lastT = performance.now(), lastListT = 0;
 function frame(t) {
   const dt = Math.min(0.05, (t - lastT) / 1000); lastT = t;
+  mouseSteer();
   if (mode === 'local' && hostGame) {
     stepGame(hostGame, { p1: ctlDir(ctlA), p2: ctlDir(ctlB) }, dt, scores);
     if (hostGame.ph === 'end' && hostGame.timer <= 0) hostGame = newGame(localSlots(), false);
@@ -1022,6 +1117,7 @@ function frame(t) {
     predictStep(dt);
   }
   draw(dt);
+  drawMoveTarget();
   updateGutter();
   updateOverlay();
   if (t - lastListT > 250) { lastListT = t; renderList(); updateUI(); updateStatus(); }
@@ -1051,6 +1147,7 @@ function updateGutter() {
 }
 new ResizeObserver(resize).observe($('wrap'));
 resize();
+cv.addEventListener('contextmenu', onRightClick);
 
 const disp = new Map(), bombDisp = new Map();
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
