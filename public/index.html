@@ -226,7 +226,12 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
       <ul>
         <li>Sau 1 phút 30 giây, tường rơi dần từ ngoài vào trong.</li>
         <li>Ô sắp bị lấp sẽ nháy viền đỏ. Đứng trúng là chết, khiên không đỡ được.</li>
-        <li>Lấp xong thì mưa bom: ô có dấu ngắm đỏ sẽ có bom rơi, rơi nhanh dần.</li>
+      </ul>
+      <h3>Khi đã chết</h3>
+      <ul>
+        <li>Click chuột trái lên ô trống để thả bom, 5 giây một lần.</li>
+        <li>Ô có dấu ngắm đỏ là bom sắp rơi, có 1 giây để né.</li>
+        <li>Bom của người chết hạ được ai thì người thả được tính kill.</li>
       </ul>
       <h3>Chế độ đội</h3>
       <ul>
@@ -494,37 +499,30 @@ function crushCell(g, i) {
   }
 }
 
-// bomb rain, after the closing walls are done: a warned cell gets a short-fuse bomb, faster and faster
-const RAIN_WARN = 1, RAIN_FUSE = 1.2;
-function bombRain(g, dt) {
-  g.rain = g.rain || []; g.rainN = g.rainN || 0;
-  for (const r of g.rain) r.t -= dt;
-  for (const r of g.rain.filter(r => r.t <= 0)) {
-    if (!isWallish(g.grid[r.i]) && !g.bombs.some(b => b.i === r.i)) {
-      const b = { id: ++g.bid, i: r.i, fx: r.i % W, fy: (r.i / W) | 0, vx: 0, vy: 0, lock: -1, t: RAIN_FUSE, r: 2, owner: 'rain' };
-      g.bombs.push(b);
-      for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
-    }
+// ghost bombs: a player who is out for good can click a floor cell; after a 1s warning a bomb lands there,
+// owned by that player (their kill, and it spares their teammates). One drop per GHOST_CD seconds each.
+const GHOST_WARN = 1, GHOST_FUSE = 1.2, GHOST_CD = 5;
+function ghostDrop(g, id, cell) {
+  if (g.ph !== 'play' || !(cell >= 0 && cell < W * H)) return false;
+  const p = g.players.find(q => q.id === id);
+  if (!p || p.alive || p.down > 0) return false;
+  g.drops = g.drops || [];
+  if ((g.t || 0) < (p.ghostAt || -99) + GHOST_CD) return false;
+  if (g.grid[cell] !== '.' || PORTALS.flat().includes(cell) || g.bombs.some(b => b.i === cell) || g.drops.some(d => d.i === cell)) return false;
+  p.ghostAt = g.t || 0;
+  g.drops.push({ i: cell, t: GHOST_WARN, o: id });
+  return true;
+}
+function tickDrops(g, dt) {
+  if (!g.drops || !g.drops.length) return;
+  for (const d of g.drops) d.t -= dt;
+  for (const d of g.drops.filter(d => d.t <= 0)) {
+    if (isWallish(g.grid[d.i]) || g.bombs.some(b => b.i === d.i)) continue;
+    const b = { id: ++g.bid, i: d.i, fx: d.i % W, fy: (d.i / W) | 0, vx: 0, vy: 0, lock: -1, t: GHOST_FUSE, r: 2, owner: d.o };
+    g.bombs.push(b);
+    for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
   }
-  g.rain = g.rain.filter(r => r.t > 0);
-  g.rainAcc = (g.rainAcc || 0) + dt;
-  const every = Math.max(0.6, 1.5 - 0.05 * g.rainN);
-  if (g.rainAcc < every) return;
-  g.rainAcc = 0;
-  const portals = new Set(PORTALS.flat());
-  const ok = i => g.grid[i] === '.' && !portals.has(i) && !g.bombs.some(b => b.i === i) && !g.rain.some(r => r.i === i);
-  const alive = g.players.filter(p => p.alive);
-  let pool = [];
-  if (alive.length && Math.random() < 0.5) {
-    // half the drops land near a living player so nobody can hide in a corner forever
-    const p = alive[Math.floor(Math.random() * alive.length)];
-    for (let y = Math.round(p.y) - 2; y <= Math.round(p.y) + 2; y++) for (let x = Math.round(p.x) - 2; x <= Math.round(p.x) + 2; x++)
-      if (x > 0 && y > 0 && x < W - 1 && y < H - 1 && ok(idx(x, y))) pool.push(idx(x, y));
-  }
-  if (!pool.length) for (let i = 0; i < W * H; i++) if (ok(i)) pool.push(i);
-  if (!pool.length) return;
-  g.rain.push({ i: pool[Math.floor(Math.random() * pool.length)], t: RAIN_WARN });
-  g.rainN++;
+  g.drops = g.drops.filter(d => d.t > 0);
 }
 
 // scatter a dead player's power-ups onto the nearest free floor cells (BFS from where they died)
@@ -684,8 +682,8 @@ function stepGame(g, inputs, dt, scores) {
       g.sdAcc -= SD_STEP;
       crushCell(g, i);
     }
-    if (g.sdk >= SD_ORDER.length) bombRain(g, dt);
   }
+  tickDrops(g, dt);
 
   // anyone dead for good (not a downed teammate waiting for rescue) drops what they picked up
   for (const p of g.players) if (!p.alive && p.down <= 0 && !p.dropped) { p.dropped = true; dropItems(g, p); }
@@ -721,11 +719,11 @@ function snapshot(g, scores) {
     pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0]),
     w: g.winner || '', pz: g.pz ? 1 : 0,
     sd: g.ph === 'play' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
-    rn: g.ph === 'play' && g.sdk >= SD_ORDER.length ? 1 : 0, rw: (g.rain || []).map(r => r.i),
+    rw: (g.drops || []).map(d => d.i),
     // end-of-round stats: [id, kills, pickups, revives, how they died: '' alive, '=' own bomb, '#' crushed, else killer id]
     st: g.ph !== 'end' ? undefined : g.players.map(p => {
       const death = g.kills.find(([, v]) => v === p.id);
-      const by = !death ? '' : death[0] === null ? '#' : death[0] === p.id ? '=' : String(death[0]);
+      const by = !death ? (p.alive ? '' : '-') : death[0] === null ? '#' : death[0] === p.id ? '=' : String(death[0]);
       return [p.id, g.kills.filter(([a, v]) => a === p.id && v !== p.id).length, p.picks || 0, g.revives.filter(([a]) => a === p.id).length, by];
     })
   };
@@ -935,6 +933,36 @@ function mouseSteer() {
   if (next < 0) next = pathNext(here, moveTarget, false);
   if (next < 0) return clearMoveTarget();
   setMouseDir([next % W - cx, ((next / W) | 0) - cy]);
+}
+/* ---------- ghost bombs: dead players left-click the board ---------- */
+let ghostSeq = 0, ghostReadyAt = 0;
+const gbSeen = new Map();   // host: peer -> last ghost-bomb request seq handled
+function canGhost() {
+  if (mode !== 'online' || !snap || snap.ph !== 'play' || snap.pz) return false;
+  const me = snap.pl.find(p => p.id === myPeer);
+  return !!(me && !me.alive && !me.downed);
+}
+function hostGhostRequests() {
+  for (const p of peers()) {
+    if (p.sameTab || isKicked(p)) continue;
+    const z = p.presence && p.presence.gb, seq = Array.isArray(z) ? z[1] | 0 : 0;
+    const seen = gbSeen.get(p.peer);
+    gbSeen.set(p.peer, seq);
+    if (seen === undefined || seen === seq || !hostGame || hostPz) continue;
+    ghostDrop(hostGame, p.peer, z[0] | 0);
+  }
+}
+function onBoardClick(e) {
+  if (e.button !== 0 || !canGhost()) return;
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * H);
+  if (x < 0 || y < 0 || x >= W || y >= H) return;
+  if (performance.now() < ghostReadyAt) return;
+  const cell = idx(x, y);
+  if (snap.g[cell] !== '.' || PORTALS.flat().includes(cell) || snap.bm.some(b => b.i === cell)) return;
+  ghostReadyAt = performance.now() + GHOST_CD * 1000;
+  if (hosting && hostGame) ghostDrop(hostGame, myPeer, cell);
+  else room.presence({ gb: [cell, ++ghostSeq] }).catch(() => {});
 }
 function onRightClick(e) {
   e.preventDefault();
@@ -1161,7 +1189,7 @@ function sanitizeSnap(s) {
     pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb),
     kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : [],
     sd: typeof s.sd === 'number' ? s.sd | 0 : -1,
-    rn: s.rn === 1, rw: Array.isArray(s.rw) ? s.rw.map(n => n | 0).filter(n => n >= 0 && n < W * H).slice(0, 32) : [],
+    rw: Array.isArray(s.rw) ? s.rw.map(n => n | 0).filter(n => n >= 0 && n < W * H).slice(0, 32) : [],
     st: Array.isArray(s.st) ? s.st.filter(a => Array.isArray(a) && a.length >= 5).slice(0, 8).map(a => ({ id: String(a[0]), k: a[1] | 0, it: a[2] | 0, rv: a[3] | 0, by: String(a[4] || '') })) : []
   };
 }
@@ -1203,7 +1231,7 @@ function setSnap(next) {
 /* ---------- hosting ---------- */
 function startHosting() {
   if (!room || !connected) return;
-  hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear(); kicked.clear();
+  hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear(); gbSeen.clear(); kicked.clear();
   mode = 'online';
   publishHost(true);
   onRoomChange();
@@ -1446,6 +1474,7 @@ function simulate(now) {
     setSnap(sanitizeSnap(snapshot(hostGame, scores)));
   } else if (hosting && room) {
     hostPauseRequests();
+    hostGhostRequests();
     if (hostGame && hostPz) holdInputs(hostGame, hostInputs());
     else if (hostGame) {
       const present = new Set(peers().map(p => p.peer));
@@ -1511,6 +1540,7 @@ function updateGutter() {
 new ResizeObserver(resize).observe($('wrap'));
 resize();
 cv.addEventListener('contextmenu', onRightClick);
+cv.addEventListener('pointerdown', onBoardClick);
 
 const disp = new Map(), bombDisp = new Map();
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
@@ -1582,7 +1612,7 @@ function draw(dt) {
     ctx.stroke();
   }
   // sudden death warning: outline the next cells the closing walls will fill
-  if (s && s.ph === 'play' && s.sd >= 0 && s.sd <= 5 && !s.rn) {
+  if (s && s.ph === 'play' && s.sd >= 0 && s.sd <= 5) {
     let shown = 0;
     ctx.strokeStyle = `rgba(199,127,140,${.45 + Math.sin(now / 120) * .25})`; ctx.lineWidth = Math.max(1.5, T * .06);
     for (const i of SD_ORDER) {
@@ -1704,7 +1734,7 @@ function renderStats(s) {
   line('$ bom --stats\n');
   const rows = [...s.st].sort((a, b) => b.k - a.k || b.it - a.it);
   for (const r of rows) {
-    const fate = r.by === '' ? 'sống sót' : r.by === '=' ? 'tự nổ' : r.by === '#' ? 'bị tường đè' : r.by === 'rain' ? 'bị mưa bom' : 'bị ' + nameOf(r.by) + ' hạ';
+    const fate = r.by === '' ? 'sống sót' : r.by === '-' ? 'bị loại' : r.by === '=' ? 'tự nổ' : r.by === '#' ? 'bị tường đè' : 'bị ' + nameOf(r.by) + ' hạ';
     line(nameOf(r.id).padEnd(w + 2), true);
     line(`${String(r.k).padStart(2)} kill  ${String(r.it).padStart(2)} đồ${r.rv ? '  ' + r.rv + ' cứu' : ''}  ${fate}\n`);
   }
@@ -1840,6 +1870,7 @@ function updateNetText() {
 }
 function updateStatus() {
   const s = snap;
+  cv.style.cursor = canGhost() ? 'crosshair' : '';
   $('stMode').textContent = mode === 'local' ? 'chế độ: 1 máy' : ('chế độ: ' + (s && s.md === 't' ? 'đội' : 'solo'));
   let host = '';
   if (mode === 'online' && hostPeer) {
@@ -1850,8 +1881,11 @@ function updateStatus() {
   const ph = !s ? '' : { lobby: 'sảnh chờ', count: 'đếm ngược', play: 'đang chơi', end: 'hết ván' }[s.ph];
   let note = ph ? '// ' + ph : '';
   if (s && s.ph === 'play' && s.sd > 0) note += ` · bo sau ${Math.floor(s.sd / 60)}:${String(s.sd % 60).padStart(2, '0')}`;
-  else if (s && s.ph === 'play' && s.rn) note += ' · mưa bom';
   else if (s && s.ph === 'play' && s.sd === 0) note += ' · bo đang thu hẹp';
+  if (canGhost()) {
+    const wait = Math.ceil((ghostReadyAt - performance.now()) / 1000);
+    note += wait > 0 ? ` · thả bom sau ${wait}s` : ' · click để thả bom';
+  }
   if ($('tabNote').textContent !== note) $('tabNote').textContent = note;
 }
 
