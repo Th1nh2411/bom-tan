@@ -224,7 +224,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
       </ul>
       <h3>Vùng bo</h3>
       <ul>
-        <li>Sau 1 phút 30 giây, tường rơi dần từ ngoài vào trong.</li>
+        <li>Sau 1 phút, tường rơi dần từ ngoài vào trong.</li>
         <li>Ô sắp bị lấp sẽ nháy viền đỏ. Đứng trúng là chết, khiên không đỡ được.</li>
       </ul>
       <h3>Khi đã chết</h3>
@@ -321,7 +321,7 @@ function pickSpawns(n) {
 const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 6, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
 const POWERS = 'bfskh';   // h = shield: absorbs one hit, then 1s of invulnerability
 // sudden death: after SD_START seconds of play, walls fill the two outer rings in a spiral, one cell per SD_STEP
-const SD_START = 90, SD_STEP = 0.35;
+const SD_START = 60, SD_STEP = 0.35;
 const speedOf = p => 3.3 + 0.6 * p.spd;
 
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
