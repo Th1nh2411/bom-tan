@@ -212,6 +212,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
         <li><span class="ico">👟</span> chạy nhanh hơn</li>
         <li><span class="ico">🧤</span> đi vào bom để đá nó</li>
         <li><span class="ico">🛡️</span> khiên: đỡ 1 lần trúng bom, sau đó bất tử 1 giây</li>
+        <li>Ai chết sẽ rơi lại các vật phẩm đã nhặt ở quanh chỗ chết</li>
       </ul>
       <h3>Cổng xoáy</h3>
       <ul>
@@ -430,6 +431,31 @@ function placeBomb(g, p, cellHint) {
   for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
 }
 
+// scatter a dead player's power-ups onto the nearest free floor cells (BFS from where they died)
+function dropItems(g, p) {
+  const items = [];
+  for (let k = 1; k < p.maxB; k++) items.push('b');
+  for (let k = 2; k < p.fire; k++) items.push('f');
+  for (let k = 0; k < p.spd; k++) items.push('s');
+  if (p.kick) items.push('k');
+  if (p.shield) items.push('h');
+  if (!items.length) return;
+  const portals = new Set(PORTALS.flat());
+  const taken = new Set(g.players.filter(q => q.alive).map(q => idx(Math.round(q.x), Math.round(q.y))));
+  for (const b of g.bombs) taken.add(b.i);
+  const start = idx(Math.round(p.x), Math.round(p.y));
+  const seen = new Set([start]), q = [start], free = [];
+  for (let h = 0; h < q.length && free.length < items.length; h++) {
+    const c = q[h];
+    if (g.grid[c] === '.' && !portals.has(c) && !taken.has(c) && !g.flames.has(c)) free.push(c);
+    for (const [dx, dy] of DIRS) {
+      const n = idx(c % W + dx, ((c / W) | 0) + dy);
+      if (!seen.has(n) && !isWallish(g.grid[n])) { seen.add(n); q.push(n); }
+    }
+  }
+  items.forEach((it, k) => { if (k < free.length) g.grid[free[k]] = it; });
+}
+
 function bombBlocked(g, x, y, b) {
   if (x < 0 || y < 0 || x >= W || y >= H) return true;
   const i = idx(x, y);
@@ -551,6 +577,9 @@ function stepGame(g, inputs, dt, scores) {
     if (t - dt <= 0) { g.burn.delete(i); g.grid[i] = g.hidden[i] || '.'; g.hidden[i] = ''; }
     else g.burn.set(i, t - dt);
   }
+
+  // anyone dead for good (not a downed teammate waiting for rescue) drops what they picked up
+  for (const p of g.players) if (!p.alive && p.down <= 0 && !p.dropped) { p.dropped = true; dropItems(g, p); }
 
   const alive = g.players.filter(p => p.alive);
   let over = false, winners = [];
