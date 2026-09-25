@@ -94,7 +94,7 @@ table.lb{width:100%;border-collapse:collapse;font-size:12px}
 .help li::marker{color:var(--muted)}
 .help .ico{filter:grayscale(1);display:inline-block;width:18px}
 .help kbd{font-family:var(--mono);font-size:11px;color:var(--soft);background:var(--input);border-radius:2px;padding:0 3px}
-.editor{display:flex;width:min(100%, calc((100dvh - 170px) * 16 / 13));min-width:260px;border:1px solid var(--line);overflow:hidden;background:var(--chrome)}
+.editor{display:flex;width:min(100%, calc((100dvh - 170px) * var(--board-ar, 1.23)));min-width:260px;border:1px solid var(--line);overflow:hidden;background:var(--chrome)}
 .gutter{flex:none;width:max(26px, calc(var(--t) * .9));display:flex;flex-direction:column;background:var(--bg);user-select:none}
 .gutter span{height:var(--t);display:flex;align-items:center;justify-content:flex-end;padding-right:min(10px, calc(var(--t) * .2));font-family:var(--mono);font-size:min(12px, max(10px, calc(var(--t) * .45)));color:var(--muted)}
 .gutter span.cur{color:var(--ink)}
@@ -268,38 +268,68 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
 </footer>
 <script>
 /* ================= ENGINE (pure game logic) ================= */
-const W = 15, H = 13;
+// The board size grows with the number of players. W/H and everything derived from them are module state:
+// the host sets them when a round starts, clients adopt them from the snapshot (gw/gh).
+// sizes: [W, H, portal x1, x2, portal y1, y2]
+const BOARD_SIZES = [[13, 11, 3, 9, 3, 7], [15, 13, 5, 9, 3, 9], [17, 13, 5, 11, 3, 9], [19, 15, 5, 13, 3, 11]];
+const sizeFor = n => BOARD_SIZES[n <= 2 ? 0 : n <= 4 ? 1 : n <= 6 ? 2 : 3];
+let W = 15, H = 13, PORTALS = [], SD_ORDER = [], emptyGrid = '', dimsVer = 0;
 const idx = (x, y) => y * W + x;
 const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
-const SPAWNS = [[1,1],[13,11],[13,1],[1,11],[7,1],[7,11],[1,5],[13,7]];
-const PORTALS = [[idx(5,3), idx(9,9)], [idx(9,3), idx(5,9)]];
+function setDims(w, h) {
+  const sz = BOARD_SIZES.find(s => s[0] === w && s[1] === h);
+  if (!sz || (w === W && h === H && dimsVer)) return !!sz;
+  W = w; H = h; dimsVer++;
+  const [, , x1, x2, y1, y2] = sz;
+  PORTALS = [[idx(x1, y1), idx(x2, y2)], [idx(x2, y1), idx(x1, y2)]];
+  // sudden death: the two outer rings, clockwise spiral
+  SD_ORDER = [];
+  for (let r = 0; r < 2; r++) {
+    const x0 = 1 + r, y0 = 1 + r, xe = W - 2 - r, ye = H - 2 - r;
+    for (let x = x0; x <= xe; x++) SD_ORDER.push(idx(x, y0));
+    for (let y = y0 + 1; y <= ye; y++) SD_ORDER.push(idx(xe, y));
+    for (let x = xe - 1; x >= x0; x--) SD_ORDER.push(idx(x, ye));
+    for (let y = ye - 1; y > y0; y--) SD_ORDER.push(idx(x0, y));
+  }
+  emptyGrid = '';
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) emptyGrid += (x === 0 || y === 0 || x === W - 1 || y === H - 1 || (x % 2 === 0 && y % 2 === 0)) ? '#' : '.';
+  return true;
+}
+setDims(15, 13);
+// random spawns on odd/odd cells (never next to a pillar trap), spread apart and away from portals
+function pickSpawns(n) {
+  const portals = PORTALS.flat().map(c => [c % W, (c / W) | 0]);
+  const cand = [];
+  for (let y = 1; y < H - 1; y += 2) for (let x = 1; x < W - 1; x += 2)
+    if (portals.every(([px, py]) => Math.abs(px - x) + Math.abs(py - y) > 3)) cand.push([x, y]);
+  const out = [];
+  for (let minD = Math.floor((W + H) / 3); out.length < n && minD >= 0; minD--) {
+    const pool = cand.filter(([x, y]) => out.every(([ox, oy]) => Math.abs(ox - x) + Math.abs(oy - y) >= minD));
+    while (out.length < n && pool.length) {
+      const [p] = pool.splice(Math.floor(Math.random() * pool.length), 1);
+      if (out.every(([ox, oy]) => Math.abs(ox - p[0]) + Math.abs(oy - p[1]) >= minD)) out.push(p);
+    }
+  }
+  return out;
+}
 const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 6, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
 const POWERS = 'bfskh';   // h = shield: absorbs one hit, then 1s of invulnerability
 // sudden death: after SD_START seconds of play, walls fill the two outer rings in a spiral, one cell per SD_STEP
 const SD_START = 90, SD_STEP = 0.35;
-const SD_ORDER = (() => {
-  const o = [];
-  for (let r = 0; r < 2; r++) {
-    const x0 = 1 + r, y0 = 1 + r, x1 = W - 2 - r, y1 = H - 2 - r;
-    for (let x = x0; x <= x1; x++) o.push(y0 * W + x);
-    for (let y = y0 + 1; y <= y1; y++) o.push(y * W + x1);
-    for (let x = x1 - 1; x >= x0; x--) o.push(y1 * W + x);
-    for (let y = y1 - 1; y > y0; y--) o.push(y * W + x0);
-  }
-  return o;
-})();
 const speedOf = p => 3.3 + 0.6 * p.spd;
 
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
 function isWallish(c) { return c === '#' || c === 'x' || c === 'X'; }
 
 function newGame(slots, teams) {
+  const sz = sizeFor(slots.length);
+  setDims(sz[0], sz[1]);
   const grid = new Array(W * H).fill('.');
   const hidden = new Array(W * H).fill('');
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     if (x === 0 || y === 0 || x === W - 1 || y === H - 1 || (x % 2 === 0 && y % 2 === 0)) grid[idx(x, y)] = '#';
   }
-  const spawns = SPAWNS.slice(0, Math.max(slots.length, 2));
+  const spawns = pickSpawns(slots.length);
   const portalCells = PORTALS.flat();
   const keepClear = (x, y) =>
     spawns.some(([sx, sy]) => Math.abs(sx - x) + Math.abs(sy - y) <= 2) ||
@@ -314,7 +344,7 @@ function newGame(slots, teams) {
   }
   const players = slots.map((s, k) => ({
     id: s.id, uid: s.uid || null, name: s.name, color: s.color, team: teams ? s.team : k,
-    x: SPAWNS[k][0], y: SPAWNS[k][1], alive: true,
+    x: spawns[k][0], y: spawns[k][1], alive: true,
     maxB: 1, fire: 2, spd: 0, kick: false, shield: false, dir: 2, down: 0, downBy: null, inv: 0,
     lastB: null, lastTp: null, pass: [], lock: -1
   }));
@@ -648,7 +678,7 @@ function stepGame(g, inputs, dt, scores) {
 
 function snapshot(g, scores) {
   return {
-    rid: g.rid, md: g.teams ? 't' : 's',
+    rid: g.rid, md: g.teams ? 't' : 's', gw: W, gh: H,
     ph: g.ph, tm: Math.ceil(Math.max(0, g.timer)),
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
@@ -1071,7 +1101,9 @@ function onRoomChange() {
 }
 
 function sanitizeSnap(s) {
-  if (!s || typeof s.g !== 'string' || s.g.length !== W * H || !Array.isArray(s.pl)) return null;
+  if (!s || typeof s.g !== 'string' || !Array.isArray(s.pl)) return null;
+  // adopt the host's board size before anything indexes the grid
+  if (!setDims(s.gw | 0 || 15, s.gh | 0 || 13) || s.g.length !== W * H) return null;
   const md = s.md === 't' ? 't' : 's';
   const teamRank = [0, 0];
   const pl = s.pl.filter(a => Array.isArray(a) && a.length >= 8).slice(0, 8).map(a => {
@@ -1198,11 +1230,12 @@ function recordRound(g) {
   if (rows.length) room.recordLeaderboard(rows);
 }
 
-const emptyGrid = (() => { let s = ''; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) s += (x === 0 || y === 0 || x === W - 1 || y === H - 1 || (x % 2 === 0 && y % 2 === 0)) ? '#' : '.'; return s; })();
 function lobbySnap() {
   const js = joinedPeers();
+  const sz = sizeFor(js.length);   // preview the board size the next round will use
+  setDims(sz[0], sz[1]);
   return {
-    rid: 0, md: hostTeams ? 't' : 's', ph: 'lobby', tm: 0, g: emptyGrid, bm: [], fl: [],
+    rid: 0, md: hostTeams ? 't' : 's', ph: 'lobby', tm: 0, g: emptyGrid, bm: [], fl: [], gw: W, gh: H,
     pl: js.map(p => { const t = p.sameTab ? myTeam : p.presence.t; return [p.peer, -100, -100, 1, (p.presence.c | 0) & 7, peerName(p), 2, scores[p.peer] || 0, (t === 0 || t === 1) ? t : -1, 0, 0]; }),
     w: ''
   };
@@ -1392,6 +1425,7 @@ function simulate(now) {
 }
 function frame(t) {
   const dt = simulate(t);
+  syncBoardLayout();
   updateCover();
   draw(dt);
   drawMoveTarget();
@@ -1419,8 +1453,17 @@ function resize() {
   document.documentElement.style.setProperty('--t', T + 'px');
 }
 const gutterEl = $('gutter');
-for (let y = 1; y <= H; y++) { const s = document.createElement('span'); s.textContent = y; gutterEl.appendChild(s); }
-let gutterRow = -1;
+let gutterRow = -1, layoutVer = -1;
+// rebuild line numbers, the editor's aspect ratio and the canvas when the board size changes
+function syncBoardLayout() {
+  if (layoutVer === dimsVer) return;
+  layoutVer = dimsVer; gutterRow = -1;
+  gutterEl.textContent = '';
+  for (let y = 1; y <= H; y++) { const s = document.createElement('span'); s.textContent = y; gutterEl.appendChild(s); }
+  document.documentElement.style.setProperty('--board-ar', String((W + 0.9) / H));
+  resize();
+}
+syncBoardLayout();
 function updateGutter() {
   let row = -1;
   if (snap) { const me = snap.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer)); if (me && me.x >= 0) row = Math.round(pred && mode === 'online' ? pred.y : me.y); }
