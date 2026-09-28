@@ -12,7 +12,7 @@ function setDims(w, h) {
   if (!sz || (w === W && h === H && dimsVer)) return !!sz;
   W = w; H = h; dimsVer++;
   const [, , x1, x2, y1, y2] = sz;
-  PORTALS = [[idx(x1, y1), idx(x2, y2)], [idx(x2, y1), idx(x1, y2)]];
+  PORTALS = [[idx(x1, y1), idx(x2, y2)]];
   // sudden death: the two outer rings, clockwise spiral
   SD_ORDER = [];
   for (let r = 0; r < 2; r++) {

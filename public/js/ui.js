@@ -236,6 +236,22 @@ $('localBtn').onclick = () => { if (mode === 'online') startLocal(); else stopLo
 // touch screens have no Esc / ` keys: one button toggles the pause
 $('pauseBtn').onclick = () => { setPause(!((snap && snap.pz) || coverLocal)); updateUI(); };
 
+/* ---------- info tabs (Thành tích, Bảng xếp hạng, Hướng dẫn) ---------- */
+document.querySelectorAll('.info-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.info-tab').forEach(t => {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.info-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    const target = tab.dataset.tab;
+    const panel = $(target);
+    if (panel) panel.classList.add('active');
+  });
+});
+
 updateUI();
 initNet();
 requestAnimationFrame(frame);

@@ -6,6 +6,10 @@ let authInfo = (() => {
 })();
 let googleClientId = '';
 
+function isLoggedIn() {
+  return !!authInfo;
+}
+
 function saveAuth(v) {
   authInfo = v;
   store('bt-auth', v ? JSON.stringify(v) : '');
@@ -18,6 +22,27 @@ function renderAuth() {
   $('authHint').hidden = !!authInfo;
   $('authWho').hidden = !authInfo;
   if (authInfo) $('authEmail').textContent = authInfo.email || authInfo.name || 'Đã đăng nhập';
+
+  const gate = $('loginGate');
+  if (gate) {
+    if (authInfo) {
+      gate.classList.add('hide');
+    } else {
+      gate.classList.remove('hide');
+      if (!googleClientId && $('gateGsiBtn') && !$('gateGsiBtn').hasChildNodes()) {
+        const demoBtn = document.createElement('button');
+        demoBtn.className = 'b run';
+        demoBtn.style.padding = '8px 16px';
+        demoBtn.style.fontSize = '14px';
+        demoBtn.style.cursor = 'pointer';
+        demoBtn.textContent = '🚀 Đăng nhập trải nghiệm (Demo)';
+        demoBtn.onclick = () => {
+          saveAuth({ session: 'demo-session', by: PLAYER_KEY, name: myName || 'Người chơi', email: 'demo@bomtan.local' });
+        };
+        $('gateGsiBtn').appendChild(demoBtn);
+      }
+    }
+  }
 }
 
 // server answer to a Google token (or to a stored session that no longer checks out)
@@ -45,7 +70,11 @@ async function initGoogle() {
   s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
   s.onload = () => {
     google.accounts.id.initialize({ client_id: googleClientId, callback: r => room && room.auth(r.credential), ux_mode: 'popup' });
-    google.accounts.id.renderButton($('gsiBtn'), { theme: 'filled_black', size: 'medium', text: 'signin_with', shape: 'rectangular', width: 240 });
+    if ($('gsiBtn')) google.accounts.id.renderButton($('gsiBtn'), { theme: 'filled_black', size: 'medium', text: 'signin_with', shape: 'rectangular', width: 240 });
+    if ($('gateGsiBtn')) {
+      $('gateGsiBtn').textContent = '';
+      google.accounts.id.renderButton($('gateGsiBtn'), { theme: 'filled_black', size: 'large', text: 'signin_with', shape: 'rectangular', width: 280 });
+    }
   };
   document.head.appendChild(s);
 }

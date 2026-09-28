@@ -51,6 +51,7 @@ const KEYS_A = { KeyW: [0,-1], KeyS: [0,1], KeyA: [-1,0], KeyD: [1,0] };
 const KEYS_B = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0] };
 
 addEventListener('keydown', e => {
+  if (typeof isLoggedIn === 'function' && !isLoggedIn()) return;
   if (!authed) return;
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const local = mode === 'local';
