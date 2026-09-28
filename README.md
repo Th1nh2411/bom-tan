@@ -93,7 +93,9 @@ Chưa cấu hình thì nút đăng nhập tự ẩn, game vẫn chạy bình th�
 2. Vào **APIs & Services → OAuth consent screen**, chọn **External**, điền tên app và email, rồi lưu.
 3. Vào **Credentials → Create credentials → OAuth client ID**, chọn loại **Web application**.
 4. Ở **Authorized JavaScript origins**, thêm `http://localhost:3000` và địa chỉ Render, ví dụ `https://bom-tan-xxxx.onrender.com`. Không cần redirect URI.
-5. Copy **Client ID** vào biến môi trường `GOOGLE_CLIENT_ID`: trên máy chạy `GOOGLE_CLIENT_ID=... npm start`, trên Render đặt trong **Environment**.
+5. Copy **Client ID** vào biến môi trường `GOOGLE_CLIENT_ID`:
+   - Trên máy: tạo file `.env` ở thư mục gốc, ghi dòng `GOOGLE_CLIENT_ID=...`. Server tự đọc file này khi khởi động, và file đã được `.gitignore` bỏ qua.
+   - Trên Render: đặt trong **Environment**.
 
 Cần biết:
 - `SESSION_SECRET` dùng để ký phiên đăng nhập, giữ 30 ngày. Render tự tạo biến này qua `render.yaml`. Nếu không đặt, người chơi phải đăng nhập lại mỗi khi server khởi động lại.

@@ -1,5 +1,6 @@
 // Bom Tấn server: serves public/ and the WebSocket relay on /api/ws.
 // Run: npm install && npm start  ->  http://localhost:3000
+import './server/env.js';   // must stay first: loads .env before anything reads process.env
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
