@@ -203,23 +203,59 @@ async function broadcastLb(r) {
   try { const rows = await readLb(); sendLocal(r, { t: 'lb', rows }); } catch {}
 }
 
+/* ---------------- room rules: one host, kicks, limits ---------------- */
+export const LIMITS = { MSG_PER_SEC: 240, ROOM_SIZE: 16, LB_EVERY_MS: 3000 };
+const HOST_KEYS = ['h', 'g', 'gg'];
+// The host is whoever claimed it first and is still connected. Only the host may publish the game
+// (h/g/gg); a second claim is stripped and the claimant is told, so rooms cannot be hijacked.
+function activeHost(r) { return r.host && r.local.has(r.host) ? r.host : null; }
+function applyHostRules(r, me, patch, ws) {
+  const host = activeHost(r);
+  if (patch.h === 1 && !host) r.host = me;
+  if (patch.h === null && host === me) r.host = null;
+  if (activeHost(r) === me || !HOST_KEYS.some(k => k in patch)) return patch;
+  const out = { ...patch };
+  for (const k of HOST_KEYS) delete out[k];
+  if (patch.h === 1) try { ws.send(JSON.stringify({ t: 'deny', what: 'host' })); } catch {}
+  return out;
+}
+// kicked players are listed by the host (peer ids and player keys) in its published game state
+function isKicked(r, peer, by) {
+  const host = activeHost(r);
+  const kk = host && r.local.get(host).p.g && r.local.get(host).p.g.kk;
+  return Array.isArray(kk) && (kk.includes(peer) || kk.includes(by));
+}
+function enforceKicks(r) {
+  for (const [id, c] of r.local) if (id !== r.host && isKicked(r, id, c.by)) { try { c.ws.close(4001, 'kicked'); } catch {} }
+}
+
 /* ---------------- connections ---------------- */
 function onConnection(ws) {
   let r = null, me = null;
+  let winStart = Date.now(), winCount = 0;
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', async data => {
+    // flood guard: a normal client sends at most ~110 messages a second
+    const now = Date.now();
+    if (now - winStart >= 1000) { winStart = now; winCount = 0; }
+    if (++winCount > LIMITS.MSG_PER_SEC) { ws.close(1008, 'too many messages'); return; }
     let m; try { m = JSON.parse(data); } catch { return; }
     if (m.t === 'join') {
       if (r) return;
       const roomId = cleanRoom(m.room), peer = cleanId(m.peer);
       if (!roomId || !peer) { ws.close(1008, 'bad join'); return; }
       await redisInit;
-      r = getRoom(roomId); me = peer;
+      const room = getRoom(roomId), by = cleanId(m.by) || peer;
+      if (isKicked(room, peer, by)) { ws.close(4001, 'kicked'); dropRoomIfEmpty(room); return; }
+      if (room.local.size >= LIMITS.ROOM_SIZE && !room.local.has(peer)) { ws.close(4002, 'room full'); dropRoomIfEmpty(room); return; }
+      r = room; me = peer;
       const old = r.local.get(me);
       if (old && old.ws !== ws) { try { old.ws.close(4000, 'replaced'); } catch {} }
-      const c = { ws, by: cleanId(m.by) || me, p: cleanPatch(m.p) || {} };
+      const c = { ws, by, p: {} };
+      r.local.set(me, c);   // before the host rules, so a reconnecting host can reclaim the room
+      c.p = applyHostRules(r, me, cleanPatch(m.p) || {}, ws);
       r.local.set(me, c);
       r.remote.delete(me);
       const peers = [];
@@ -235,16 +271,22 @@ function onConnection(ws) {
     const c = r.local.get(me);
     if (!c || c.ws !== ws) return;
     if (m.t === 'p') {
-      const patch = cleanPatch(m.p);
+      let patch = cleanPatch(m.p);
       if (!patch) return;
+      patch = applyHostRules(r, me, patch, ws);
+      if (!Object.keys(patch).length) return;
       const next = merge(c.p, patch);
       if (JSON.stringify(next).length > MAX_PRESENCE) return;
       c.p = next;
       sendPatch(r, me, patch);
       if (hasRemote(r)) publish({ t: 'p', room: r.id, peer: me, by: c.by, p: patch });
+      if (me === r.host && patch.g) enforceKicks(r);
     } else if (m.t === 'lb') {
       sendLb(ws);
     } else if (m.t === 'lbrec') {
+      // only the host reports finished rounds, and not faster than a round can possibly last
+      if (me !== activeHost(r) || now - (r.lastLb || 0) < LIMITS.LB_EVERY_MS) return;
+      r.lastLb = now;
       try { await recordLb(m.rows); } catch {}
       broadcastLb(r);
       publish({ t: 'lbchg', room: r.id });
@@ -256,6 +298,7 @@ function onConnection(ws) {
     const c = r.local.get(me);
     if (c && c.ws === ws) {
       r.local.delete(me);
+      if (r.host === me) r.host = null;
       sendLocal(r, { t: 'leave', peer: me });
       publish({ t: 'leave', room: r.id, peer: me });
       dropRoomIfEmpty(r);
