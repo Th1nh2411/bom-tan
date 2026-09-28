@@ -263,16 +263,18 @@ function dropItems(g, p) {
   const taken = new Set(g.players.filter(q => q.alive).map(q => idx(Math.round(q.x), Math.round(q.y))));
   for (const b of g.bombs) taken.add(b.i);
   const start = idx(Math.round(p.x), Math.round(p.y));
-  const seen = new Set([start]), q = [start], free = [];
+  // prefer cells that are not burning; if the reachable area is all fire, use burning cells too
+  const seen = new Set([start]), q = [start], free = [], burning = [];
   for (let h = 0; h < q.length && free.length < items.length; h++) {
     const c = q[h];
-    if (g.grid[c] === '.' && !portals.has(c) && !taken.has(c) && !g.flames.has(c)) free.push(c);
+    if (g.grid[c] === '.' && !portals.has(c) && !taken.has(c)) (g.flames.has(c) ? burning : free).push(c);
     for (const [dx, dy] of DIRS) {
       const n = idx(c % W + dx, ((c / W) | 0) + dy);
       if (!seen.has(n) && !isWallish(g.grid[n])) { seen.add(n); q.push(n); }
     }
   }
-  items.forEach((it, k) => { if (k < free.length) g.grid[free[k]] = it; });
+  const cells = free.concat(burning);
+  items.forEach((it, k) => { if (k < cells.length) g.grid[cells[k]] = it; });
 }
 
 function bombBlocked(g, x, y, b) {
