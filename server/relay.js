@@ -1,9 +1,8 @@
 // Bom Tấn realtime relay.
 // Every browser keeps one WebSocket open here. The server only relays "presence"
 // patches between players in the same room; the game itself runs in the host's browser.
-// Vercel may put players of one room on different function instances, so instances
-// forward traffic to each other through Redis pub/sub when a room is split.
-import http from 'node:http';
+// With REDIS_URL set, the leaderboard is stored in Redis, and if the app ever runs as several
+// instances, they forward room traffic to each other through Redis pub/sub.
 import { WebSocketServer } from 'ws';
 import { createClient } from 'redis';
 
@@ -278,11 +277,3 @@ export function attach(server) {
   wss.on('close', () => clearInterval(ping));
   return wss;
 }
-
-const server = http.createServer((req, res) => {
-  res.writeHead(426, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end('Bom Tấn: endpoint này chỉ nhận kết nối WebSocket.');
-});
-attach(server);
-
-export default server;

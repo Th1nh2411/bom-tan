@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node dev.js",
-    "start": "node dev.js"
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "test": "node --test test/"
   },
   "dependencies": {
     "redis": "^4.7.0",
