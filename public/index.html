@@ -20,6 +20,11 @@
   <aside class="side" id="side">
     <section class="sec">
       <h2>bạn</h2>
+      <div class="auth" id="authBox" hidden>
+        <div id="gsiBtn"></div>
+        <div class="who" id="authWho" hidden><span id="authEmail"></span><button class="linkbtn" id="signOutBtn">Đăng xuất</button></div>
+        <p class="authHint" id="authHint">Đăng nhập để giữ điểm bảng xếp hạng khi đổi máy.</p>
+      </div>
       <label class="f" for="name"><span class="tk-kw">let</span>tênTrongGame =</label>
       <input type="text" id="name" maxlength="12" autocomplete="off">
       <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
@@ -153,6 +158,7 @@
 <script src="js/game.js"></script>
 <script src="js/render.js"></script>
 <script src="js/progress.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

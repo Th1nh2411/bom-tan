@@ -10,3 +10,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      # Google sign-in (optional): paste the OAuth client id in the dashboard
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      # signs login sessions; generated once so sessions survive restarts
+      - key: SESSION_SECRET
+        generateValue: true

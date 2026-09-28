@@ -5,6 +5,7 @@
 // instances, they forward room traffic to each other through Redis pub/sub.
 import { WebSocketServer } from 'ws';
 import { createClient } from 'redis';
+import { readSession, verifyGoogleIdToken, makeSession } from './auth.js';
 
 const INST = Math.random().toString(36).slice(2, 10);
 const CHANNEL = 'bomtan:v1';
@@ -248,7 +249,13 @@ function onConnection(ws) {
       const roomId = cleanRoom(m.room), peer = cleanId(m.peer);
       if (!roomId || !peer) { ws.close(1008, 'bad join'); return; }
       await redisInit;
-      const room = getRoom(roomId), by = cleanId(m.by) || peer;
+      // a signed-in player's key comes only from a valid session; nobody can claim a Google-backed key ("g_...")
+      const sess = m.session ? readSession(m.session) : null;
+      if (m.session && !sess) ws.send(JSON.stringify({ t: 'authfail' }));
+      let by = cleanId(m.by) || peer;
+      if (by.startsWith('g_')) by = peer;
+      if (sess) by = sess.by;
+      const room = getRoom(roomId);
       if (isKicked(room, peer, by)) { ws.close(4001, 'kicked'); dropRoomIfEmpty(room); return; }
       if (room.local.size >= LIMITS.ROOM_SIZE && !room.local.has(peer)) { ws.close(4002, 'room full'); dropRoomIfEmpty(room); return; }
       r = room; me = peer;
@@ -262,7 +269,7 @@ function onConnection(ws) {
       const peers = [];
       for (const [id, x] of r.local) peers.push({ peer: id, by: x.by, p: x.p });
       for (const [id, x] of r.remote) if (!r.local.has(id)) peers.push({ peer: id, by: x.by, p: x.p });
-      ws.send(JSON.stringify({ t: 'full', peers }));
+      ws.send(JSON.stringify({ t: 'full', peers, by: c.by }));   // "by": the player key the server settled on for you
       sendLocal(r, { t: 'join', peer: me, by: c.by, p: c.p }, me);
       publish({ t: 'hello', room: roomId });
       publish({ t: 'join', room: roomId, peer: me, by: c.by, p: c.p });
@@ -282,6 +289,15 @@ function onConnection(ws) {
       sendPatch(r, me, patch);
       if (hasRemote(r)) publish({ t: 'p', room: r.id, peer: me, by: c.by, p: patch });
       if (me === r.host && patch.g) enforceKicks(r);
+    } else if (m.t === 'auth') {
+      const user = await verifyGoogleIdToken(m.token);
+      if (ws.readyState !== 1) return;
+      if (!user) { ws.send(JSON.stringify({ t: 'authfail' })); return; }
+      const session = makeSession(user), s = readSession(session);
+      c.by = s.by;
+      ws.send(JSON.stringify({ t: 'authed', session, by: s.by, name: s.name, email: s.email }));
+      sendLocal(r, { t: 'by', peer: me, by: c.by }, me);   // others learn the new key; the email never leaves this socket
+      if (isKicked(r, me, c.by)) ws.close(4001, 'kicked');
     } else if (m.t === 'lb') {
       sendLb(ws);
     } else if (m.t === 'lbrec') {

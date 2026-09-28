@@ -46,12 +46,13 @@ const ROOM_ID = (() => {
   return r;
 })();
 
-function createRoom(roomId, peerId, byId) {
+// opts.session(): the signed-in session to present when (re)joining, or null
+function createRoom(roomId, peerId, byId, opts = {}) {
   let ws = null, isConn = false, retry = 500;
   let peerMap = new Map(), peersArr = Object.freeze([]);
   let mine = {}, pending = null, lbFn = null;
   const connFns = [], peersFns = [];
-  let denyFn = null, fatalFn = null, rttFn = null;
+  let denyFn = null, fatalFn = null, rttFn = null, authFn = null, byFn = null, pendingToken = null;
   // measure the round trip to the server every 2s (shown in the player list)
   setInterval(() => { if (isConn) send({ t: 'ping', ts: performance.now() }); }, 2000);   // server refused our host claim / closed us for good (kicked, room full)
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/ws';
@@ -66,7 +67,7 @@ function createRoom(roomId, peerId, byId) {
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
   function connect() {
     try { ws = new WebSocket(url); } catch (e) { return later(); }
-    ws.onopen = () => { retry = 500; send({ t: 'join', room: roomId, peer: peerId, by: byId, p: mine }); };
+    ws.onopen = () => { retry = 500; send({ t: 'join', room: roomId, peer: peerId, by: byId, p: mine, session: opts.session ? opts.session() : null }); };
     ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } handle(m); };
     ws.onclose = ev => {
       setConn(false);
@@ -79,10 +80,12 @@ function createRoom(roomId, peerId, byId) {
   function later() { if (stopped) return; setTimeout(connect, retry); retry = Math.min(retry * 2, 8000); }
   function handle(m) {
     if (m.t === 'full') {
+      if (typeof m.by === 'string' && m.by && m.by !== byId) { byId = m.by; if (byFn) byFn(byId); }
       peerMap = new Map();
       for (const e of (m.peers || [])) if (e.peer !== peerId) peerMap.set(e.peer, entry(e.peer, e.by, e.p));
       peerMap.set(peerId, entry(peerId, byId, mine));
       setConn(true);
+      if (pendingToken) { send({ t: 'auth', token: pendingToken }); pendingToken = null; }
       emit([...peerMap.values()]);
       if (lbFn) send({ t: 'lb' });
     } else if (m.t === 'join') {
@@ -96,6 +99,12 @@ function createRoom(roomId, peerId, byId) {
       const old = peerMap.get(m.peer);
       if (!old || m.peer === peerId) return;
       peerMap.delete(m.peer); emit([], [old]);
+    } else if (m.t === 'authed' || m.t === 'authfail') {
+      if (authFn) authFn(m.t === 'authed' ? m : null);
+    } else if (m.t === 'by') {
+      // a player signed in: their player key changed
+      const old = peerMap.get(m.peer);
+      if (old && m.peer !== peerId) { const e = entry(m.peer, m.by, old.presence); peerMap.set(m.peer, e); emit([], [], [e]); }
     } else if (m.t === 'pong') {
       if (rttFn && typeof m.ts === 'number') rttFn(Math.max(0, Math.round(performance.now() - m.ts)));
     } else if (m.t === 'deny') {
@@ -144,14 +153,21 @@ function createRoom(roomId, peerId, byId) {
     recordLeaderboard(rows) { send({ t: 'lbrec', rows }); },
     onDeny(fn) { denyFn = fn; },
     onRtt(fn) { rttFn = fn; },
+    onAuth(fn) { authFn = fn; },
+    onMyBy(fn) { byFn = fn; },
+    // send a Google ID token to the server (now, or as soon as we are connected)
+    auth(token) { if (isConn) send({ t: 'auth', token }); else pendingToken = token; },
+    setBy(v) { byId = v; peerMap.set(peerId, entry(peerId, byId, mine)); peersArr = Object.freeze([...peerMap.values()]); },
     onFatal(fn) { fatalFn = fn; },
     leave() { stopped = true; try { if (ws) ws.close(); } catch (e) {} setConn(false); }
   };
 }
 
 function initNet() {
-  myUid = PLAYER_KEY;
-  room = createRoom(ROOM_ID, PEER_ID, PLAYER_KEY);
+  myUid = authInfo ? authInfo.by : PLAYER_KEY;
+  room = createRoom(ROOM_ID, PEER_ID, myUid, { session: () => (authInfo ? authInfo.session : null) });
+  room.onAuth(onAuthResult);
+  room.onMyBy(by => { myUid = by; if (authInfo && authInfo.by !== by && by.startsWith('g_')) saveAuth({ ...authInfo, by }); renderLeaderboard(); });
   $('stRoom').textContent = 'phòng #' + ROOM_ID;
   $('lbCard').hidden = false;
   renderLeaderboard();

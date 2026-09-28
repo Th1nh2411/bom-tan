@@ -2,7 +2,23 @@
 
 Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 người mỗi ván. Giao diện giả làm cửa sổ VS Code để chơi kín đáo.
 
-Có chế độ solo và chế độ đội (cứu đồng đội), cổng dịch chuyển (lửa bom cũng đi xuyên), 5 loại vật phẩm (thêm bom, nổ xa, chạy nhanh, đá bom, khiên), vùng bo thu hẹp sau 1 phút, người đã chết vẫn thả được bom, thống kê cuối ván và bảng xếp hạng. Map to dần theo số người chơi, và mỗi ván mọi người xuất hiện ở chỗ ngẫu nhiên.
+**Chế độ chơi:**
+- Solo.
+- Đội: cứu được đồng đội bị hạ.
+- Zombie: một người bắt đầu là zombie và lây cho người khác.
+
+**Luật chơi:**
+- Cổng dịch chuyển; lửa bom cũng đi xuyên qua cổng.
+- 5 loại vật phẩm tốt: thêm bom, nổ xa, chạy nhanh, đá bom, khiên. Có thêm vật phẩm xấu 💀 gây lời nguyền và lây khi chạm.
+- Vùng bo thu hẹp sau 1 phút.
+- Người đã chết vẫn thả được bom.
+- Mỗi ngày có một luật đặc biệt.
+- Map to dần theo số người chơi. Mỗi ván, người chơi xuất hiện ở vị trí ngẫu nhiên.
+
+**Ngoài ván chơi:**
+- Thống kê cuối ván và bảng xếp hạng.
+- 9 thành tích, mỗi thành tích mở khóa một chiếc mũ.
+- Đăng nhập Google để giữ điểm khi đổi máy (tuỳ chọn).
 
 ## Cấu trúc
 
@@ -17,9 +33,12 @@ public/
   js/net.js         Kết nối WebSocket, trạng thái phòng
   js/game.js        Làm chủ phòng, dự đoán vị trí, tạm dừng
   js/render.js      Vòng lặp chính, vẽ canvas
+  js/progress.js    Thành tích, mũ, thông báo
+  js/auth.js        Đăng nhập Google (tuỳ chọn)
   js/ui.js          Overlay, danh sách người chơi, nút bấm
 server.js           Phục vụ public/ và WebSocket ở /api/ws, kiểm tra sống ở /healthz
 server/relay.js     Máy chủ chuyển tin giữa những người cùng phòng
+server/auth.js      Kiểm tra token Google, cấp phiên đăng nhập
 test/               Test cho engine và relay (node --test)
 render.yaml         Cấu hình deploy lên Render
 ```
@@ -66,6 +85,21 @@ Giới hạn của gói miễn phí:
 - Server ngủ sau 15 phút không có ai. Lần mở tiếp theo phải chờ khoảng 1 phút.
 - Băng thông mỗi tháng có hạn mức. Xem trang giá của Render.
 
+## Đăng nhập Google (tuỳ chọn)
+
+Chưa cấu hình thì nút đăng nhập tự ẩn, game vẫn chạy bình thường.
+
+1. Vào console.cloud.google.com, tạo một project.
+2. Vào **APIs & Services → OAuth consent screen**, chọn **External**, điền tên app và email, rồi lưu.
+3. Vào **Credentials → Create credentials → OAuth client ID**, chọn loại **Web application**.
+4. Ở **Authorized JavaScript origins**, thêm `http://localhost:3000` và địa chỉ Render, ví dụ `https://bom-tan-xxxx.onrender.com`. Không cần redirect URI.
+5. Copy **Client ID** vào biến môi trường `GOOGLE_CLIENT_ID`: trên máy chạy `GOOGLE_CLIENT_ID=... npm start`, trên Render đặt trong **Environment**.
+
+Cần biết:
+- `SESSION_SECRET` dùng để ký phiên đăng nhập, giữ 30 ngày. Render tự tạo biến này qua `render.yaml`. Nếu không đặt, người chơi phải đăng nhập lại mỗi khi server khởi động lại.
+- Google chỉ cho đăng nhập trên `localhost` hoặc `https`. Chơi qua LAN bằng `http://192.168...` thì không đăng nhập được, nhưng vẫn chơi bình thường.
+- Server tự kiểm tra chữ ký token với khóa công khai của Google. Người chơi khác chỉ thấy một mã đã mã hóa, không thấy email hay tài khoản Google.
+
 ## Test
 
 ```bash
@@ -74,6 +108,7 @@ npm test
 
 - **Test engine** (`test/engine.test.js`): kích thước map, vị trí spawn, vụ nổ, lửa qua cổng, khiên, rơi đồ khi chết, vùng bo, bom của người đã chết, thống kê cuối ván.
 - **Test relay** (`test/relay.test.js`): một chủ phòng, kick, giới hạn phòng, chống spam, chuyển tin điều khiển tới chủ phòng, bảng xếp hạng.
+- **Test đăng nhập** (`test/auth.test.js`): kiểm tra token Google (dùng khóa giả), phiên đăng nhập, chống giả mạo mã người chơi.
 
 ## Những điều cần biết
 
