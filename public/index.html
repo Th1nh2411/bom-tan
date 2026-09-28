@@ -999,7 +999,7 @@ let hosting = false;
 let hostTeams = false;
 let hostGame = null;
 let scores = {};
-let snap = null, lastSnapObj = null;
+let snap = null, lastSnapObj = null, lastSnapGrid = null;
 let hostPeer = null, hostLeftNotice = false;
 // kick: the host keeps a ban list of player keys (per browser) and publishes it; a kicked client disconnects itself
 const kicked = new Set();
@@ -1091,13 +1091,22 @@ function createRoom(roomId, peerId, byId) {
   connect();
   return {
     presence(patch) {
-      mine = mergeP(mine, patch);
-      pending = { ...(pending || {}), ...patch };
+      // only send what changed: prediction and inputs re-send the same values every frame
+      const diff = {};
+      for (const k of Object.keys(patch)) {
+        const v = patch[k];
+        if (v === null ? k in mine : (typeof v === 'object' || mine[k] !== v)) diff[k] = v;
+      }
+      if (!Object.keys(diff).length) return Promise.resolve();
+      mine = mergeP(mine, diff);
+      pending = { ...(pending || {}), ...diff };
       scheduleFlush();
       peerMap.set(peerId, entry(peerId, byId, mine));
       peersArr = Object.freeze([...peerMap.values()]);
       return Promise.resolve();
     },
+    // send everything once more (a new host never saw our earlier host-only patches)
+    resync() { pending = { ...mine }; scheduleFlush(); },
     peers: () => peersArr,
     connected: () => isConn,
     onPeers(fn) { peersFns.push(fn); setTimeout(() => fn({ peers: peersArr, joined: peersArr, left: [], updated: [] }), 0); return () => { const i = peersFns.indexOf(fn); if (i >= 0) peersFns.splice(i, 1); }; },
@@ -1141,11 +1150,12 @@ function onRoomChange() {
   if (hosting && h && !h.sameTab) stopHosting();
   const prevHost = hostPeer;
   hostPeer = hosting ? myPeer : (h ? h.peer : null);
+  if (!hosting && hostPeer && hostPeer !== prevHost) room.resync();
   if (prevHost && !hostPeer && !hosting) hostLeftNotice = true;
   if (hostPeer) hostLeftNotice = false;
-  if (!hosting && mode === 'online' && h && h.presence.g !== lastSnapObj) {
-    lastSnapObj = h.presence.g;
-    setSnap(sanitizeSnap(h.presence.g));
+  if (!hosting && mode === 'online' && h && (h.presence.g !== lastSnapObj || h.presence.gg !== lastSnapGrid)) {
+    lastSnapObj = h.presence.g; lastSnapGrid = h.presence.gg;
+    setSnap(sanitizeSnap({ ...h.presence.g, g: h.presence.gg }));
   }
   if (!h && !hosting && mode === 'online' && snap) setSnap(null);
   if (!hosting && snap && (snap.kk.includes(PLAYER_KEY) || snap.kk.includes(myPeer)) && !kickedOut) {
@@ -1238,7 +1248,8 @@ function startHosting() {
 }
 function stopHosting() {
   hosting = false; hostGame = null;
-  if (room) room.presence({ h: null, g: null }).catch(() => {});
+  lastPubBody = lastPubGrid = '';
+  if (room) room.presence({ h: null, g: null, gg: null }).catch(() => {});
 }
 function joinedPeers() {
   return peers().filter(p => p.kind === 'viewer' && p.presence && p.presence.j === 1 && !isKicked(p)).slice(0, 8);
@@ -1306,7 +1317,7 @@ function lobbySnap() {
   };
 }
 
-let lastPub = 0;
+let lastPub = 0, lastPubBody = '', lastPubGrid = '';
 function publishHost(force) {
   const now = performance.now();
   const raw = hostGame ? snapshot(hostGame, scores) : lobbySnap();
@@ -1315,8 +1326,14 @@ function publishHost(force) {
   if (kicked.size) raw.kk = [...kicked];
   setSnap(sanitizeSnap(raw));
   if (!force && now - lastPub < 20) return;
-  lastPub = now;
-  room.presence({ h: 1, g: raw }).catch(() => {});
+  // the grid travels in its own key (gg) and only when it changes; frames where nothing changed are skipped
+  const { g: grid, ...body } = raw;
+  const bodyStr = JSON.stringify(body), patch = {};
+  if (grid !== lastPubGrid) { patch.gg = grid; lastPubGrid = grid; }
+  if (bodyStr !== lastPubBody) { patch.g = body; lastPubBody = bodyStr; }
+  if (!patch.g && !patch.gg) return;
+  lastPub = now; patch.h = 1;
+  room.presence(patch).catch(() => {});
 }
 
 /* ---------- client-side prediction ---------- */

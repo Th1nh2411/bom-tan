@@ -54,6 +54,15 @@ function sendLocal(r, obj, exceptPeer) {
   const s = JSON.stringify(obj);
   for (const [peer, c] of r.local) if (peer !== exceptPeer && c.ws.readyState === 1) c.ws.send(s);
 }
+// Controls (movement, bombs, predicted position, pause and ghost-bomb requests) only matter to the host,
+// who runs the game. Patches made only of these go to the host instead of everyone, which is most of the traffic.
+const HOST_ONLY = new Set(['dx', 'dy', 'b', 'bc', 'px', 'py', 'pd', 'tp', 'pr', 'pz', 'gb']);
+const hostOnly = patch => Object.keys(patch).every(k => HOST_ONLY.has(k));
+function sendPatch(r, peer, patch) {
+  if (!hostOnly(patch)) return sendLocal(r, { t: 'p', peer, p: patch }, peer);
+  const s = JSON.stringify({ t: 'p', peer, p: patch });
+  for (const [id, c] of r.local) if (id !== peer && c.p.h === 1 && c.ws.readyState === 1) c.ws.send(s);
+}
 function hasRemote(r) {
   const now = Date.now();
   for (const t of r.insts.values()) if (now - t < 10000) return true;
@@ -119,7 +128,7 @@ function onBus(raw) {
       if (!patch) break;
       if (!e) { maybeHello(r); break; }
       e.p = merge(e.p, patch); e.seen = Date.now();
-      sendLocal(r, { t: 'p', peer: m.peer, p: patch });
+      sendPatch(r, m.peer, patch);
       break;
     }
     case 'leave':
@@ -232,7 +241,7 @@ function onConnection(ws) {
       const next = merge(c.p, patch);
       if (JSON.stringify(next).length > MAX_PRESENCE) return;
       c.p = next;
-      sendLocal(r, { t: 'p', peer: me, p: patch }, me);
+      sendPatch(r, me, patch);
       if (hasRemote(r)) publish({ t: 'p', room: r.id, peer: me, by: c.by, p: patch });
     } else if (m.t === 'lb') {
       sendLb(ws);
@@ -256,7 +265,8 @@ function onConnection(ws) {
 }
 
 export function attach(server) {
-  const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
+  // compress messages: snapshots repeat a lot between frames, so deflate with context takeover shrinks them a lot
+  const wss = new WebSocketServer({ server, maxPayload: 16 * 1024, perMessageDeflate: { threshold: 64, zlibDeflateOptions: { level: 6 } } });
   wss.on('connection', onConnection);
   const ping = setInterval(() => {
     for (const ws of wss.clients) {
