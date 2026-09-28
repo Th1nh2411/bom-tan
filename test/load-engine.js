@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const SRC = readFileSync(new URL('../public/js/engine.js', import.meta.url), 'utf8');
 const API = [
-  'W', 'H', 'PORTALS', 'SD_ORDER', 'SD_START', 'SD_STEP', 'SHIELD_INV', 'GHOST_WARN', 'GHOST_CD', 'FUSE',
+  'W', 'H', 'PORTALS', 'SD_ORDER', 'SD_START', 'SD_STEP', 'SHIELD_INV', 'GHOST_WARN', 'GHOST_CD', 'FUSE', 'CURSE_T', 'speedOf',
   'idx', 'sizeFor', 'setDims', 'pickSpawns', 'newGame', 'stepGame', 'explode', 'placeBomb', 'ghostDrop', 'snapshot', 'portalExit',
 ];
 

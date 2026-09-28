@@ -168,6 +168,8 @@ function updateStatus() {
   let note = ph ? '// ' + ph : '';
   if (s && s.ph === 'play' && s.sd > 0) note += ` · bo sau ${Math.floor(s.sd / 60)}:${String(s.sd % 60).padStart(2, '0')}`;
   else if (s && s.ph === 'play' && s.sd === 0) note += ' · bo đang thu hẹp';
+  const meP = s && s.ph === 'play' ? s.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer)) : null;
+  if (meP && meP.alive && meP.ck) note += ` · bị nguyền: ${CURSE_NAMES[meP.ck]} ${meP.ct}s`;
   if (canGhost()) {
     const wait = Math.ceil((ghostReadyAt - performance.now()) / 1000);
     note += wait > 0 ? ` · thả bom sau ${wait}s` : ' · click để thả bom';

@@ -106,7 +106,7 @@ function drawTile(c, x, y, now) {
     ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1, T * .05); ctx.stroke();
     ctx.font = `${Math.round(T * .44)}px ${EMOJI_FONT}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤', h: '🛡️' }[c], px + T / 2, py + T / 2 + bob + T * .02);
+    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤', h: '🛡️', c: '💀' }[c], px + T / 2, py + T / 2 + bob + T * .02);
   }
 }
 
@@ -212,6 +212,14 @@ function draw(dt) {
     ctx.fillStyle = p.color; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1.5, T * .07);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
     if (isMe) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, T * .04); ctx.beginPath(); ctx.arc(cx, cy, r + T * .08, 0, 7); ctx.stroke(); }
+    if (p.ck && p.alive) {
+      // cursed: a dashed ring that spins, plus a small skull
+      ctx.save(); ctx.setLineDash([T * .08, T * .07]); ctx.lineDashOffset = -now / 40;
+      ctx.strokeStyle = '#9d8fbf'; ctx.lineWidth = Math.max(1.5, T * .05);
+      ctx.beginPath(); ctx.arc(cx, cy, r + T * .22, 0, 7); ctx.stroke(); ctx.restore();
+      ctx.font = `${Math.round(T * .24)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      fillEmoji('💀', cx - r * .9, cy - r * .8);
+    }
     if (p.shield && p.alive) { ctx.strokeStyle = '#9d9d9d'; ctx.lineWidth = Math.max(2, T * .07); ctx.beginPath(); ctx.arc(cx, cy, r + T * .15, 0, 7); ctx.stroke(); }
     if (p.kick && p.alive) { ctx.font = `${Math.round(T * .26)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; fillEmoji('🧤', cx + r * .85, cy + r * .7); }
     const ex = [0, 1, 0, -1][dir] * r * .35, ey = [-1, 0, 1, 0][dir] * r * .3;

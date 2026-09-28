@@ -145,7 +145,8 @@ function predictStep(dt) {
   pred.bombs = new Set(bombs.map(b => b.i));
   const view = { grid: predGrid, bombs };
   const pp = { x: pred.x, y: pred.y, pass: pred.pass, lock: pred.lock };
-  const d = ctlDir(ctlA);
+  let d = ctlDir(ctlA);
+  if (me.ck === 1) d = { ...d, dx: -d.dx, dy: -d.dy };   // reversed-controls curse
   if (d.dx || d.dy) {
     pred.dir = d.dx > 0 ? 1 : d.dx < 0 ? 3 : d.dy > 0 ? 2 : 0;
     tryMove(view, pp, d.dx, d.dy, speedOf(me) * dt);

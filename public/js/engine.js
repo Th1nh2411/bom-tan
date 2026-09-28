@@ -44,10 +44,13 @@ function pickSpawns(n) {
   return out;
 }
 const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 6, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
-const POWERS = 'bfskh';   // h = shield: absorbs one hit, then 1s of invulnerability
+const POWERS = 'bfskhc';   // h = shield: absorbs one hit, then 1s of invulnerability; c = curse (a bad item)
+// curses (p.ck): 1 reversed controls, 2 slow, 3 drops bombs by itself. They last CURSE_T seconds and
+// jump to anyone the cursed player touches.
+const CURSE_T = 10, CURSE_NAMES = ['', 'đảo phím', 'chạy chậm', 'tự thả bom'];
 // sudden death: after SD_START seconds of play, walls fill the two outer rings in a spiral, one cell per SD_STEP
 const SD_START = 60, SD_STEP = 0.35;
-const speedOf = p => 3.3 + 0.6 * p.spd;
+const speedOf = p => (3.3 + 0.6 * p.spd) * (p.ck === 2 ? 0.5 : 1);
 
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
 function isWallish(c) { return c === '#' || c === 'x' || c === 'X'; }
@@ -70,13 +73,13 @@ function newGame(slots, teams) {
     if (grid[i] !== '.' || keepClear(x, y)) continue;
     if (Math.random() < 0.72) {
       grid[i] = 'x';
-      if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.28 ? 'b' : r < 0.56 ? 'f' : r < 0.72 ? 's' : r < 0.86 ? 'k' : 'h'; }
+      if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.26 ? 'b' : r < 0.52 ? 'f' : r < 0.66 ? 's' : r < 0.78 ? 'k' : r < 0.90 ? 'h' : 'c'; }
     }
   }
   const players = slots.map((s, k) => ({
     id: s.id, uid: s.uid || null, name: s.name, color: s.color, team: teams ? s.team : k,
     x: spawns[k][0], y: spawns[k][1], alive: true,
-    maxB: 1, fire: 2, spd: 0, kick: false, shield: false, dir: 2, down: 0, downBy: null, inv: 0,
+    maxB: 1, fire: 2, spd: 0, kick: false, shield: false, ck: 0, ct: 0, dir: 2, down: 0, downBy: null, inv: 0,
     lastB: null, lastTp: null, pass: [], lock: -1
   }));
   return {
@@ -330,6 +333,8 @@ function stepGame(g, inputs, dt, scores) {
     const inp = inputs[p.id] || { dx: 0, dy: 0, b: p.lastB };
     let dx = inp.dx | 0, dy = inp.dy | 0;
     if (dx && dy) dy = 0;
+    if (p.ct > 0 && (p.ct -= dt) <= 0) { p.ct = 0; p.ck = 0; }
+    if (p.ck === 1) { dx = -dx; dy = -dy; }   // remote players already send reversed positions; this covers local ones and kicks
     const remote = typeof inp.px === 'number' && inp.pr === g.rid;
     if (remote) {
       applyReported(g, p, inp, dt);
@@ -341,6 +346,7 @@ function stepGame(g, inputs, dt, scores) {
     }
     if (p.lastB === null) p.lastB = inp.b;
     else if (inp.b !== p.lastB) { p.lastB = inp.b; placeBomb(g, p, inp.bc); }
+    if (p.ck === 3 && (p.autoT = (p.autoT || 0) - dt) <= 0) { p.autoT = 0.5; placeBomb(g, p); }
 
     // kick
     if (p.kick && (dx || dy)) {
@@ -360,7 +366,11 @@ function stepGame(g, inputs, dt, scores) {
     else if (c === 's') { p.spd = Math.min(5, p.spd + 1); g.grid[ci] = '.'; }
     else if (c === 'k') { p.kick = true; g.grid[ci] = '.'; }
     else if (c === 'h') { p.shield = true; g.grid[ci] = '.'; }
+    else if (c === 'c') { p.ck = 1 + Math.floor(Math.random() * 3); p.ct = CURSE_T; p.autoT = 0; g.grid[ci] = '.'; }
   }
+  // curses spread by touch
+  for (const a of g.players) if (a.alive && a.ck) for (const b of g.players)
+    if (b !== a && b.alive && !b.ck && Math.hypot(a.x - b.x, a.y - b.y) < 0.8) { b.ck = a.ck; b.ct = a.ct; b.autoT = 0; }
 
   for (const b of g.bombs) if (b.vx || b.vy) slideBomb(g, b, dt);
   for (const b of g.bombs) b.t -= dt;
@@ -443,7 +453,7 @@ function snapshot(g, scores) {
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
-    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0]),
+    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0)]),
     w: g.winner || '', pz: g.pz ? 1 : 0,
     sd: g.ph === 'play' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
     rw: (g.drops || []).map(d => d.i),

@@ -159,3 +159,34 @@ test('end-of-round snapshot carries board size and stats', () => {
   assert.equal(row[1], 1, 'one kill for a');
   assert.equal(s.st.find(r => r[0] === b.id)[4], a.id, 'b was killed by a');
 });
+
+test('curse: picked up, reverses controls, spreads by touch, wears off', () => {
+  const e = loadEngine(); const g = openGame(e, 3);
+  const [a, b, c] = g.players;
+  place(a, 5, 5); place(b, 9, 7); place(c, 1, 9);
+  g.grid[at(e, 5, 5)] = 'c';
+  e.stepGame(g, {}, 1 / 60, {});
+  assert.ok(a.ck >= 1 && a.ck <= 3, 'cursed after picking up the skull');
+  a.ck = 1;   // force "reversed controls"
+  const x0 = a.x;
+  for (let k = 0; k < 20; k++) e.stepGame(g, { [a.id]: { dx: 1, dy: 0, b: 0 } }, 1 / 60, {});
+  assert.ok(a.x < x0, 'pressing right moves left');
+  place(b, a.x + 0.5, a.y);
+  e.stepGame(g, {}, 1 / 60, {});
+  assert.equal(b.ck, a.ck, 'touching spreads the curse');
+  assert.equal(c.ck, 0, 'nobody else is affected');
+  run(e, g, e.CURSE_T + 0.1);
+  assert.equal(a.ck, 0); assert.equal(b.ck, 0);
+});
+
+test('curse: slow halves speed, auto-bomb drops bombs by itself', () => {
+  const e = loadEngine(); const g = openGame(e);
+  const [a, b] = g.players;
+  place(a, 5, 5); place(b, 9, 7);
+  const normal = e.speedOf(a);
+  a.ck = 2; a.ct = 5;
+  assert.equal(e.speedOf(a), normal / 2);
+  a.ck = 3; a.maxB = 3;
+  e.stepGame(g, {}, 1 / 60, {});
+  assert.equal(g.bombs.filter(o => o.owner === a.id).length, 1, 'dropped a bomb without pressing anything');
+});

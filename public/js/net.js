@@ -217,7 +217,8 @@ function sanitizeSnap(s) {
       id: String(a[0]), x: (+a[1] || 0) / 100, y: (+a[2] || 0) / 100, alive: a[3] === 1, downed: a[3] === 2,
       downT: Math.max(0, (+a[11] || 0) / 10), inv: !!a[12],
       color, name: cleanName(a[5]) || 'Ẩn danh', dir: a[6] | 0, score: a[7] | 0,
-      team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10], shield: !!a[13]
+      team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10], shield: !!a[13],
+      ck: Math.min(3, Math.max(0, a[14] | 0)), ct: Math.max(0, a[15] | 0)
     };
   });
   return {
