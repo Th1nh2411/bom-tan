@@ -13,7 +13,7 @@ function resolveProfiles(ids) {
 }
 let mode = 'online';          // 'online' | 'local'
 let hosting = false;
-let hostTeams = false;
+let hostMode = 's';   // 's' solo, 't' teams, 'z' zombie
 let hostGame = null;
 let scores = {};
 let snap = null, lastSnapObj = null, lastSnapGrid = null;
@@ -207,7 +207,7 @@ function sanitizeSnap(s) {
   if (!s || typeof s.g !== 'string' || !Array.isArray(s.pl)) return null;
   // adopt the host's board size before anything indexes the grid
   if (!setDims(s.gw | 0 || 15, s.gh | 0 || 13) || s.g.length !== W * H) return null;
-  const md = s.md === 't' ? 't' : 's';
+  const md = s.md === 't' || s.md === 'z' ? s.md : 's';
   const teamRank = [0, 0];
   const pl = s.pl.filter(a => Array.isArray(a) && a.length >= 8).slice(0, 8).map(a => {
     const team = a[8] | 0;
@@ -218,7 +218,7 @@ function sanitizeSnap(s) {
       downT: Math.max(0, (+a[11] || 0) / 10), inv: !!a[12],
       color, name: cleanName(a[5]) || 'Ẩn danh', dir: a[6] | 0, score: a[7] | 0,
       team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10], shield: !!a[13],
-      ck: Math.min(3, Math.max(0, a[14] | 0)), ct: Math.max(0, a[15] | 0)
+      ck: Math.min(3, Math.max(0, a[14] | 0)), ct: Math.max(0, a[15] | 0), zb: Math.min(2, Math.max(0, a[16] | 0))
     };
   });
   return {
@@ -229,7 +229,9 @@ function sanitizeSnap(s) {
     pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb),
     kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : [],
     sd: typeof s.sd === 'number' ? s.sd | 0 : -1,
+    zt: typeof s.zt === 'number' ? s.zt | 0 : -1,
+    wi: Array.isArray(s.wi) ? s.wi.map(String).slice(0, 8) : [],
     rw: Array.isArray(s.rw) ? s.rw.map(n => n | 0).filter(n => n >= 0 && n < W * H).slice(0, 32) : [],
-    st: Array.isArray(s.st) ? s.st.filter(a => Array.isArray(a) && a.length >= 5).slice(0, 8).map(a => ({ id: String(a[0]), k: a[1] | 0, it: a[2] | 0, rv: a[3] | 0, by: String(a[4] || '') })) : []
+    st: Array.isArray(s.st) ? s.st.filter(a => Array.isArray(a) && a.length >= 5).slice(0, 8).map(a => ({ id: String(a[0]), k: a[1] | 0, it: a[2] | 0, rv: a[3] | 0, by: String(a[4] || ''), zb: a[5] | 0, gk: a[6] | 0 })) : []
   };
 }

@@ -19,7 +19,8 @@ function renderStats(s) {
   line('$ bom --stats\n');
   const rows = [...s.st].sort((a, b) => b.k - a.k || b.it - a.it);
   for (const r of rows) {
-    const fate = r.by === '' ? 'sống sót' : r.by === '-' ? 'bị loại' : r.by === '=' ? 'tự nổ' : r.by === '#' ? 'bị tường đè' : 'bị ' + nameOf(r.by) + ' hạ';
+    const fate = s.md === 'z' ? (r.zb === 2 ? 'zombie gốc' : r.by === '' ? 'sống sót' : r.by === '=' ? 'tự nổ, thành zombie' : 'bị ' + nameOf(r.by) + ' lây')
+      : r.by === '' ? 'sống sót' : r.by === '-' ? 'bị loại' : r.by === '=' ? 'tự nổ' : r.by === '#' ? 'bị tường đè' : 'bị ' + nameOf(r.by) + ' hạ';
     line(nameOf(r.id).padEnd(w + 2), true);
     line(`${String(r.k).padStart(2)} kill  ${String(r.it).padStart(2)} đồ${r.rv ? '  ' + r.rv + ' cứu' : ''}  ${fate}\n`);
   }
@@ -28,6 +29,8 @@ function renderStats(s) {
   else box.lastChild.textContent = box.lastChild.textContent.replace(/\n$/, '');
 }
 function winnerText(s) {
+  if (s.w === 'zombies') return 'Zombie thắng!';
+  if (s.w === 'humans') return 'Người sống sót thắng!';
   if (s.w.startsWith('team')) return TEAM_NAMES[Number(s.w.slice(4))] + ' thắng!';
   const p = s.pl.find(q => q.id === s.w);
   if (p && s.pl.length >= 2) return p.name + ' thắng!';
@@ -47,13 +50,14 @@ function updateOverlay() {
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
   if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Bấm "Làm chủ phòng" để tiếp tục.' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
   if (s.ph === 'lobby') {
-    const n = s.pl.length, md = s.md === 't' ? 'Chế độ đội. ' : '';
+    const n = s.pl.length, md = s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '';
     return setOverlay('Sảnh chờ', md + (hosting ? `${n} người đã sẵn sàng. Bấm "Bắt đầu ván" khi đủ người.` : `${n} người đã sẵn sàng. Đợi chủ phòng bắt đầu.`));
   }
   const me = s.pl.find(p => p.id === myPeer);
   if (s.ph === 'count') {
     let sub = me ? 'Sẵn sàng!' : 'Bạn đang xem ván này, ván sau sẽ vào chơi.';
     if (me && s.md === 't' && (me.team === 0 || me.team === 1)) sub = 'Bạn ở ' + TEAM_NAMES[me.team] + '. Sẵn sàng!';
+    if (me && s.md === 'z') sub = me.zb ? 'Bạn là ZOMBIE! Chạm vào người khác để lây.' : 'Chạy khỏi zombie trong 90 giây. Bom chỉ làm zombie choáng 3 giây.';
     return setOverlay(String(s.tm || 1), sub);
   }
   if (s.ph === 'end') return setOverlay(winnerText(s), 'Sắp về sảnh chờ');
@@ -157,7 +161,7 @@ function updateNetText() {
 function updateStatus() {
   const s = snap;
   cv.style.cursor = canGhost() ? 'crosshair' : '';
-  $('stMode').textContent = mode === 'local' ? 'chế độ: 1 máy' : ('chế độ: ' + (s && s.md === 't' ? 'đội' : 'solo'));
+  $('stMode').textContent = mode === 'local' ? 'chế độ: 1 máy' : ('chế độ: ' + MODE_NAMES[s ? s.md : 's'].toLowerCase());
   let host = '';
   if (mode === 'online' && hostPeer) {
     const hp = peers().find(p => p.peer === hostPeer);
@@ -168,6 +172,10 @@ function updateStatus() {
   let note = ph ? '// ' + ph : '';
   if (s && s.ph === 'play' && s.sd > 0) note += ` · bo sau ${Math.floor(s.sd / 60)}:${String(s.sd % 60).padStart(2, '0')}`;
   else if (s && s.ph === 'play' && s.sd === 0) note += ' · bo đang thu hẹp';
+  if (s && s.ph === 'play' && s.zt >= 0) {
+    const zs = s.pl.filter(p => p.zb).length;
+    note += ` · còn ${mmss(s.zt)} · ${s.pl.length - zs} người, ${zs} zombie`;
+  }
   const meP = s && s.ph === 'play' ? s.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer)) : null;
   if (meP && meP.alive && meP.ck) note += ` · bị nguyền: ${CURSE_NAMES[meP.ck]} ${meP.ct}s`;
   if (canGhost()) {
@@ -182,7 +190,7 @@ function updateUI() {
   $('hostBtn').hidden = !(online && room && connected && !hosting && !findHost());
   $('startBtn').hidden = !(online && hosting && !hostGame);
   $('modeBtn').hidden = !(online && hosting && !hostGame);
-  $('modeBtn').textContent = hostTeams ? 'Chế độ: Đội (bấm để đổi)' : 'Chế độ: Solo (bấm để đổi)';
+  $('modeBtn').textContent = 'Chế độ: ' + MODE_NAMES[hostMode] + ' (bấm để đổi)';
   $('lobbyBtn').hidden = !(online && hosting && hostGame);
   $('localBtn').hidden = hosting;
   $('localBtn').textContent = online ? 'Chơi 2 người trên 1 máy' : 'Thoát chế độ 1 máy';
@@ -196,7 +204,7 @@ $('inviteBtn').onclick = async () => {
   setTimeout(() => { btn.textContent = 'Sao chép link mời'; }, 2000);
 };
 addEventListener('hashchange', () => location.reload());
-$('modeBtn').onclick = () => { hostTeams = !hostTeams; publishHost(true); updateUI(); };
+$('modeBtn').onclick = () => { hostMode = { s: 't', t: 'z', z: 's' }[hostMode]; publishHost(true); updateUI(); };
 $('startBtn').onclick = () => { hostPz = false; hostStartRound(); publishHost(true); updateUI(); };
 $('lobbyBtn').onclick = () => { hostGame = null; publishHost(true); updateUI(); };
 function setDrawer(open) {

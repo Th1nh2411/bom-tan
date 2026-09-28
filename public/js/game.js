@@ -21,13 +21,14 @@ function setSnap(next) {
       else if ((q.alive || q.downed) && !p.alive && !p.downed) sfx.death();
       else if (q.downed && p.alive) sfx.revive();
       else if (q.shield && !p.shield && p.alive) sfx.down();
+      else if (!q.zb && p.zb) sfx.death();
       else if (p.alive && Math.hypot(p.x - q.x, p.y - q.y) > 2.5 && !(mode === 'online' && p.id === myPeer && pred)) sfx.teleport();
     }
     for (let i = 0; i < W * H; i++) if (POWERS.includes(prev.g[i]) && next.g[i] === '.' && !next.fl.has(i)) { sfx.pickup(); break; }
   }
   if (prev.ph !== 'end' && next.ph === 'end') {
     const me = next.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
-    const won = me && (next.w === me.id || next.w === 'team' + me.team);
+    const won = me && next.wi.includes(me.id);
     if (mode === 'local' || won) sfx.win(); else sfx.lose();
   }
 }
@@ -60,7 +61,7 @@ function hostStartRound() {
     const t = p.sameTab ? myTeam : p.presence.t;
     return { id: p.peer, uid: p.by || null, name: peerName(p), color: c, team: (t === 0 || t === 1) ? t : -1 };
   });
-  if (hostTeams) {
+  if (hostMode === 't') {
     for (const s of slots) if (s.team < 0) {
       const c0 = slots.filter(o => o.team === 0).length, c1 = slots.filter(o => o.team === 1).length;
       s.team = c0 <= c1 ? 0 : 1;
@@ -71,7 +72,7 @@ function hostStartRound() {
     slots = [];
     for (let k = 0; k < Math.max(t0.length, t1.length); k++) { if (t0[k]) slots.push(t0[k]); if (t1[k]) slots.push(t1[k]); }
   }
-  hostGame = newGame(slots, hostTeams);
+  hostGame = newGame(slots, hostMode === 't', { mode: hostMode });
 }
 const clampDir = v => (v === 1 || v === -1) ? v : 0;
 function hostInputs() {
@@ -105,7 +106,7 @@ function lobbySnap() {
   const sz = sizeFor(js.length);   // preview the board size the next round will use
   setDims(sz[0], sz[1]);
   return {
-    rid: 0, md: hostTeams ? 't' : 's', ph: 'lobby', tm: 0, g: emptyGrid, bm: [], fl: [], gw: W, gh: H,
+    rid: 0, md: hostMode, ph: 'lobby', tm: 0, g: emptyGrid, bm: [], fl: [], gw: W, gh: H,
     pl: js.map(p => { const t = p.sameTab ? myTeam : p.presence.t; return [p.peer, -100, -100, 1, (p.presence.c | 0) & 7, peerName(p), 2, scores[p.peer] || 0, (t === 0 || t === 1) ? t : -1, 0, 0]; }),
     w: ''
   };
@@ -147,6 +148,7 @@ function predictStep(dt) {
   const pp = { x: pred.x, y: pred.y, pass: pred.pass, lock: pred.lock };
   let d = ctlDir(ctlA);
   if (me.ck === 1) d = { ...d, dx: -d.dx, dy: -d.dy };   // reversed-controls curse
+  if (me.zb === 2) d = { ...d, dx: 0, dy: 0 };             // stunned zombie
   if (d.dx || d.dy) {
     pred.dir = d.dx > 0 ? 1 : d.dx < 0 ? 3 : d.dy > 0 ? 2 : 0;
     tryMove(view, pp, d.dx, d.dy, speedOf(me) * dt);

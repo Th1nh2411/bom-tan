@@ -1,5 +1,8 @@
 const COLORS = ['#c77f8c','#7d9bc4','#c9b27a','#8fac7a','#9d8fbf','#c08a62','#86adc0','#b98fb0'];
 const TEAM_NAMES = ['Đội Đỏ', 'Đội Xanh'];
+const MODE_NAMES = { s: 'Solo', t: 'Đội', z: 'Zombie' };
+const ZOMBIE_COLOR = '#7f9a6c';
+const mmss = n => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
 const TEAM_SHADES = [['#c77f8c','#d6a4ad','#a3606c','#e0c1c6'], ['#7d9bc4','#a6b8d6','#5a769e','#86adc0']];
 const EMOTES = ['😂','😡','👋','😱','👍','🔥'];
 const PORTAL_COLORS = ['#9d8fbf', '#86adc0'];

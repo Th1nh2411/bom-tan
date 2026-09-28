@@ -50,12 +50,19 @@ const POWERS = 'bfskhc';   // h = shield: absorbs one hit, then 1s of invulnerab
 const CURSE_T = 10, CURSE_NAMES = ['', 'đảo phím', 'chạy chậm', 'tự thả bom'];
 // sudden death: after SD_START seconds of play, walls fill the two outer rings in a spiral, one cell per SD_STEP
 const SD_START = 60, SD_STEP = 0.35;
-const speedOf = p => (3.3 + 0.6 * p.spd) * (p.ck === 2 ? 0.5 : 1);
+const speedOf = p => (3.3 + 0.6 * p.spd) * (p.ck === 2 ? 0.5 : 1) * (p.zb ? 1.1 : 1);
+// zombie mode: one player starts as a zombie; a touch or any bomb turns a human into one.
+// Bombs only stun zombies. Humans still standing after ZOMBIE_T seconds win.
+const ZOMBIE_T = 90, ZOMBIE_STUN = 3, INFECT_INV = 1.5;
+function infect(g, p, by) { p.zb = true; p.inv = INFECT_INV; p.ck = 0; p.ct = 0; g.kills.push([by, p.id]); }
 
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
 function isWallish(c) { return c === '#' || c === 'x' || c === 'X'; }
 
-function newGame(slots, teams) {
+// opts.mode: 's' solo, 't' teams, 'z' zombie (teams stays for old callers)
+function newGame(slots, teams, opts = {}) {
+  const gmode = opts.mode || (teams ? 't' : 's');
+  teams = gmode === 't';
   const sz = sizeFor(slots.length);
   setDims(sz[0], sz[1]);
   const grid = new Array(W * H).fill('.');
@@ -82,8 +89,12 @@ function newGame(slots, teams) {
     maxB: 1, fire: 2, spd: 0, kick: false, shield: false, ck: 0, ct: 0, dir: 2, down: 0, downBy: null, inv: 0,
     lastB: null, lastTp: null, pass: [], lock: -1
   }));
+  if (gmode === 'z' && players.length >= 2) {
+    const z = players[Math.floor(Math.random() * players.length)];
+    z.zb = true; z.z0 = true;
+  }
   return {
-    rid: Math.floor(Math.random() * 1e9), teams: !!teams,
+    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode,
     ph: 'count', timer: COUNT_T, grid, hidden, bombs: [], flames: new Map(), burn: new Map(),
     players, winner: null, winnerIds: [], kills: [], revives: [], bid: 0, justEnded: false
   };
@@ -216,6 +227,9 @@ function placeBomb(g, p, cellHint) {
   for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
 }
 
+// a kill made by a ghost bomb (its owner is already out) counts toward the ghost-kill achievement
+function creditGhost(g, id) { const q = g.players.find(o => o.id === id); if (q && !q.alive && q.down <= 0) q.ghostKills = (q.ghostKills || 0) + 1; }
+
 // sudden death: a wall lands on cell i, crushing whatever is there (shields do not help)
 function crushCell(g, i) {
   g.grid[i] = '#'; g.hidden[i] = ''; g.burn.delete(i); g.flames.delete(i);
@@ -330,6 +344,7 @@ function stepGame(g, inputs, dt, scores) {
   for (const p of g.players) {
     if (!p.alive) { if (p.down > 0 && inputs[p.id]) p.lastB = inputs[p.id].b; continue; }
     if (p.inv > 0) p.inv = Math.max(0, p.inv - dt);
+    if (p.stun > 0) { p.stun = Math.max(0, p.stun - dt); if (inputs[p.id]) p.lastB = inputs[p.id].b; continue; }   // stunned zombie
     const inp = inputs[p.id] || { dx: 0, dy: 0, b: p.lastB };
     let dx = inp.dx | 0, dy = inp.dy | 0;
     if (dx && dy) dy = 0;
@@ -345,8 +360,8 @@ function stepGame(g, inputs, dt, scores) {
       portalCheck(p);
     }
     if (p.lastB === null) p.lastB = inp.b;
-    else if (inp.b !== p.lastB) { p.lastB = inp.b; placeBomb(g, p, inp.bc); }
-    if (p.ck === 3 && (p.autoT = (p.autoT || 0) - dt) <= 0) { p.autoT = 0.5; placeBomb(g, p); }
+    else if (inp.b !== p.lastB) { p.lastB = inp.b; if (!p.zb) placeBomb(g, p, inp.bc); }
+    if (p.ck === 3 && !p.zb && (p.autoT = (p.autoT || 0) - dt) <= 0) { p.autoT = 0.5; placeBomb(g, p); }
 
     // kick
     if (p.kick && (dx || dy)) {
@@ -359,7 +374,7 @@ function stepGame(g, inputs, dt, scores) {
 
     const ci = idx(Math.round(p.x), Math.round(p.y));
     p.pass = p.pass.filter(id => { const b = g.bombs.find(o => o.id === id); return b && b.i === ci; });
-    const c = g.grid[ci];
+    const c = p.zb ? '.' : g.grid[ci];   // zombies do not pick things up
     if (POWERS.includes(c)) p.picks = (p.picks || 0) + 1;
     if (c === 'b') { p.maxB = Math.min(8, p.maxB + 1); g.grid[ci] = '.'; }
     else if (c === 'f') { p.fire = Math.min(8, p.fire + 1); g.grid[ci] = '.'; }
@@ -370,7 +385,9 @@ function stepGame(g, inputs, dt, scores) {
   }
   // curses spread by touch
   for (const a of g.players) if (a.alive && a.ck) for (const b of g.players)
-    if (b !== a && b.alive && !b.ck && Math.hypot(a.x - b.x, a.y - b.y) < 0.8) { b.ck = a.ck; b.ct = a.ct; b.autoT = 0; }
+    if (b !== a && b.alive && !b.ck && !b.zb && Math.hypot(a.x - b.x, a.y - b.y) < 0.8) { b.ck = a.ck; b.ct = a.ct; b.autoT = 0; }
+  if (g.mode === 'z') for (const z of g.players) if (z.zb && !z.stun) for (const h of g.players)
+    if (!h.zb && h.inv <= 0 && Math.hypot(z.x - h.x, z.y - h.y) < 0.75) infect(g, h, z.id);
 
   for (const b of g.bombs) if (b.vx || b.vy) slideBomb(g, b, dt);
   for (const b of g.bombs) b.t -= dt;
@@ -388,10 +405,12 @@ function stepGame(g, inputs, dt, scores) {
         if (!g.teams || teamOf(o) !== p.team) { killer = o; break; }
       }
       if (killer === null) continue;
+      if (g.mode === 'z' && p.zb) { p.stun = ZOMBIE_STUN; p.inv = ZOMBIE_STUN + 1; continue; }
       if (p.shield) { p.shield = false; p.inv = SHIELD_INV; continue; }
+      if (g.mode === 'z') { infect(g, p, killer); continue; }
       p.alive = false;
       if (g.teams) { p.down = DOWN_T; p.downBy = killer; }   // knocked down, teammates have 3s to rescue
-      else g.kills.push([killer, p.id]);
+      else { g.kills.push([killer, p.id]); creditGhost(g, killer); }
     } else if (p.down > 0) {
       const saver = g.players.find(q => q.alive && q.team === p.team && Math.hypot(q.x - p.x, q.y - p.y) < REVIVE_DIST);
       if (saver) { p.alive = true; p.down = 0; p.inv = REVIVE_INV; p.pass = []; g.revives.push([saver.id, p.id]); }
@@ -411,7 +430,7 @@ function stepGame(g, inputs, dt, scores) {
   }
 
   g.t = (g.t || 0) + dt;
-  if (g.t >= SD_START) {
+  if (g.t >= SD_START && g.mode !== 'z') {
     g.sdAcc = (g.sdAcc || 0) + dt; g.sdk = g.sdk || 0;
     while (g.sdAcc >= SD_STEP && g.sdk < SD_ORDER.length) {
       const i = SD_ORDER[g.sdk++];
@@ -427,7 +446,11 @@ function stepGame(g, inputs, dt, scores) {
 
   const alive = g.players.filter(p => p.alive);
   let over = false, winners = [];
-  if (g.teams) {
+  if (g.mode === 'z') {
+    const humans = g.players.filter(p => !p.zb);
+    if (g.players.length >= 2 && !humans.length) { over = true; g.winner = 'zombies'; winners = g.players.filter(p => p.z0); }
+    else if (g.t >= ZOMBIE_T || g.players.length < 2) { over = true; g.winner = 'humans'; winners = humans; }
+  } else if (g.teams) {
     const startTeams = new Set(g.players.map(p => p.team));
     const aliveTeams = new Set(alive.map(p => p.team));
     over = startTeams.size >= 2 ? aliveTeams.size <= 1 : alive.length === 0;
@@ -448,20 +471,23 @@ function stepGame(g, inputs, dt, scores) {
 
 function snapshot(g, scores) {
   return {
-    rid: g.rid, md: g.teams ? 't' : 's', gw: W, gh: H,
+    rid: g.rid, md: g.mode || (g.teams ? 't' : 's'), gw: W, gh: H,
     ph: g.ph, tm: Math.ceil(Math.max(0, g.timer)),
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
-    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0)]),
+    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0), p.zb ? (p.stun > 0 ? 2 : 1) : 0]),
     w: g.winner || '', pz: g.pz ? 1 : 0,
-    sd: g.ph === 'play' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
+    sd: g.ph === 'play' && g.mode !== 'z' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
+    zt: g.ph === 'play' && g.mode === 'z' ? Math.max(0, Math.ceil(ZOMBIE_T - (g.t || 0))) : -1,
+    wi: g.ph === 'end' ? g.winnerIds : undefined,
     rw: (g.drops || []).map(d => d.i),
     // end-of-round stats: [id, kills, pickups, revives, how they died: '' alive, '=' own bomb, '#' crushed, else killer id]
     st: g.ph !== 'end' ? undefined : g.players.map(p => {
       const death = g.kills.find(([, v]) => v === p.id);
       const by = !death ? (p.alive ? '' : '-') : death[0] === null ? '#' : death[0] === p.id ? '=' : String(death[0]);
-      return [p.id, g.kills.filter(([a, v]) => a === p.id && v !== p.id).length, p.picks || 0, g.revives.filter(([a]) => a === p.id).length, by];
+      return [p.id, g.kills.filter(([a, v]) => a === p.id && v !== p.id).length, p.picks || 0, g.revives.filter(([a]) => a === p.id).length, by,
+        p.z0 ? 2 : p.zb ? 1 : 0, p.ghostKills || 0];
     })
   };
 }

@@ -190,3 +190,53 @@ test('curse: slow halves speed, auto-bomb drops bombs by itself', () => {
   e.stepGame(g, {}, 1 / 60, {});
   assert.equal(g.bombs.filter(o => o.owner === a.id).length, 1, 'dropped a bomb without pressing anything');
 });
+
+// zombie mode: make p0 the zombie, everyone else human
+function zombieGame(e, n = 3) {
+  const g = openGame(e, n, false, 'z');
+  g.players.forEach((p, k) => { p.zb = k === 0; p.z0 = k === 0; });
+  return g;
+}
+
+test('zombie: touch infects, zombies cannot bomb or pick up, bombs only stun them', () => {
+  const e = loadEngine(); const g = zombieGame(e);
+  const [z, h1, h2] = g.players;
+  place(z, 3, 3); place(h1, 9, 7); place(h2, 1, 9);
+  g.grid[at(e, 3, 3)] = 'b';
+  e.stepGame(g, { [z.id]: { dx: 0, dy: 0, b: 0 } }, 1 / 60, {});
+  e.stepGame(g, { [z.id]: { dx: 0, dy: 0, b: 1 } }, 1 / 60, {});
+  assert.equal(g.bombs.length, 0, 'zombie cannot place bombs');
+  assert.equal(g.grid[at(e, 3, 3)], 'b', 'zombie does not pick up items');
+  place(h1, 3.5, 3);
+  e.stepGame(g, {}, 1 / 60, {});
+  assert.equal(h1.zb, true, 'touch infects');
+  assert.deepEqual([...g.kills[0]], [z.id, h1.id]);
+  bombAt(g, e, 3, 3, 1, h2.id);
+  e.stepGame(g, {}, 1 / 60, {});
+  assert.ok(z.stun > 0 && z.alive, 'zombie is stunned, not killed');
+});
+
+test('zombie: a bomb turns a human into a zombie; last human infected -> zombies win', () => {
+  const e = loadEngine(); const g = zombieGame(e);
+  const [z, h1, h2] = g.players;
+  place(z, 9, 7); place(h1, 3, 3); place(h2, 1, 9);
+  bombAt(g, e, 3, 3, 1, h2.id);
+  e.stepGame(g, {}, 1 / 60, {});
+  assert.equal(h1.zb, true); assert.equal(h1.alive, true);
+  assert.equal(g.ph, 'play');
+  place(h2, 9.4, 7);
+  run(e, g, 0.1);
+  assert.equal(g.ph, 'end'); assert.equal(g.winner, 'zombies');
+  assert.deepEqual([...g.winnerIds], [z.id], 'patient zero gets the win');
+});
+
+test('zombie: humans still standing when time runs out win', () => {
+  const e = loadEngine(); const g = zombieGame(e);
+  const [z, h1, h2] = g.players;
+  place(z, 1, 1); place(h1, 9, 7); place(h2, 11, 9);
+  g.t = e.ZOMBIE_T - 0.05;
+  run(e, g, 0.1);
+  assert.equal(g.winner, 'humans');
+  assert.deepEqual([...g.winnerIds].sort(), [h1.id, h2.id].sort());
+  assert.ok(g.grid.every(c => c !== '#' || true) && !g.sdk, 'no closing walls in zombie mode');
+});

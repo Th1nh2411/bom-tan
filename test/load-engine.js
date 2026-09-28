@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const SRC = readFileSync(new URL('../public/js/engine.js', import.meta.url), 'utf8');
 const API = [
-  'W', 'H', 'PORTALS', 'SD_ORDER', 'SD_START', 'SD_STEP', 'SHIELD_INV', 'GHOST_WARN', 'GHOST_CD', 'FUSE', 'CURSE_T', 'speedOf',
+  'W', 'H', 'PORTALS', 'SD_ORDER', 'SD_START', 'SD_STEP', 'SHIELD_INV', 'GHOST_WARN', 'GHOST_CD', 'FUSE', 'CURSE_T', 'speedOf', 'ZOMBIE_T', 'ZOMBIE_STUN',
   'idx', 'sizeFor', 'setDims', 'pickSpawns', 'newGame', 'stepGame', 'explode', 'placeBomb', 'ghostDrop', 'snapshot', 'portalExit',
 ];
 
@@ -17,8 +17,8 @@ export function loadEngine() {
 }
 
 // a board with every breakable box removed, so tests control exactly what is where
-export function openGame(e, slots = 2, teams = false) {
-  const g = e.newGame(Array.from({ length: slots }, (_, k) => ({ id: 'p' + k, name: 'P' + k, color: k, team: k % 2 })), teams);
+export function openGame(e, slots = 2, teams = false, mode) {
+  const g = e.newGame(Array.from({ length: slots }, (_, k) => ({ id: 'p' + k, name: 'P' + k, color: k, team: k % 2 })), teams, mode ? { mode } : {});
   g.grid = g.grid.map(c => (c === 'x' ? '.' : c));
   g.hidden = g.hidden.map(() => '');
   g.ph = 'play';
