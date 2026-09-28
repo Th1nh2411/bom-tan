@@ -1,50 +1,86 @@
 # Bom Tấn
 
-Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 người mỗi ván, có chế độ đội, cứu đồng đội, đá bom, cổng dịch chuyển và bảng xếp hạng.
+Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 người mỗi ván. Giao diện giả làm cửa sổ VS Code để chơi kín đáo.
+
+Có chế độ solo và chế độ đội (cứu đồng đội), cổng dịch chuyển (lửa bom cũng đi xuyên), 5 loại vật phẩm (thêm bom, nổ xa, chạy nhanh, đá bom, khiên), vùng bo thu hẹp sau 1 phút, người đã chết vẫn thả được bom, thống kê cuối ván và bảng xếp hạng. Map to dần theo số người chơi, và mỗi ván mọi người xuất hiện ở chỗ ngẫu nhiên.
 
 ## Cấu trúc
 
 ```
-public/index.html   Toàn bộ game (giao diện + luật chơi, chạy trong trình duyệt)
-api/ws.js           Máy chủ WebSocket, chuyển tin giữa những người cùng phòng
-dev.js              Máy chủ chạy thử trên máy bạn
-vercel.json         Cấu hình Vercel
+public/
+  index.html        Khung trang
+  css/style.css     Giao diện
+  js/engine.js      Luật chơi, không dùng DOM (có test)
+  js/common.js      Hằng số, hàm dùng chung
+  js/sound.js       Âm thanh tổng hợp, không cần file
+  js/input.js       Bàn phím, chuột, cảm ứng
+  js/net.js         Kết nối WebSocket, trạng thái phòng
+  js/game.js        Làm chủ phòng, dự đoán vị trí, tạm dừng
+  js/render.js      Vòng lặp chính, vẽ canvas
+  js/ui.js          Overlay, danh sách người chơi, nút bấm
+server.js           Phục vụ public/ và WebSocket ở /api/ws, kiểm tra sống ở /healthz
+server/relay.js     Máy chủ chuyển tin giữa những người cùng phòng
+test/               Test cho engine và relay (node --test)
+render.yaml         Cấu hình deploy lên Render
 ```
 
-Luật chơi chạy trong trình duyệt của người làm chủ phòng. Máy chủ chỉ chuyển tin, nên rất nhẹ.
+Các file trong `public/js/` là script thường, nạp theo thứ tự trong `index.html` và dùng chung phạm vi toàn cục. Không cần bước build.
 
-## Chạy thử trên máy
+## Cách hoạt động
+
+- **Chủ phòng chạy luật chơi.** Trình duyệt của người làm chủ phòng tính toán ván đấu và gửi trạng thái cho mọi người. Server chỉ chuyển tin, nên rất nhẹ.
+- **Server giữ trật tự phòng:**
+  - Chỉ một người được làm chủ phòng; người bấm sau bị từ chối.
+  - Người bị kick bị ngắt kết nối và không vào lại được khi chủ phòng đó còn đó.
+  - Mỗi phòng tối đa 16 kết nối.
+  - Mỗi kết nối gửi tối đa 240 tin/giây.
+  - Chỉ chủ phòng được ghi kết quả vào bảng xếp hạng.
+- **Tiết kiệm băng thông:**
+  - Server nén dữ liệu.
+  - Chỉ gửi phần thay đổi.
+  - Thao tác điều khiển chỉ gửi tới chủ phòng.
+  - Một ván 5 người tốn khoảng 4 KB/s.
+
+## Chạy trên máy
 
 Cần Node.js 20 trở lên.
 
 ```bash
 npm install
-npm run dev
+npm start        # hoặc: npm run dev   (tự khởi động lại khi sửa server)
 ```
 
-Mở `http://localhost:3000` ở hai tab trình duyệt. Hai tab cùng đường link (cùng phần `#mã-phòng`) sẽ vào chung một phòng.
+Mở `http://localhost:3000`. Hai tab cùng đường link (cùng phần `#mã-phòng`) sẽ vào chung một phòng.
 
-## Deploy lên Vercel
+**Chơi qua mạng LAN** (cùng WiFi, ping thấp nhất): mọi người mở `http://<IP-máy-bạn>:3000/#tenphong`. Xem IP trên macOS bằng `ipconfig getifaddr en0`. Lần đầu macOS hỏi có cho Node nhận kết nối không, chọn Allow.
 
-1. Đưa thư mục này lên một repo GitHub.
-2. Vào vercel.com, chọn **Add New → Project**, chọn repo vừa tạo. Framework Preset để **Other**, không cần sửa gì khác, bấm **Deploy**.
-3. Thêm Redis (rất nên làm, xem giải thích bên dưới):
-   - Trong project, mở tab **Storage** (hoặc **Marketplace**), chọn một nhà cung cấp Redis, ví dụ **Upstash for Redis**, gói miễn phí.
-   - Kết nối nó với project. Vercel sẽ tự thêm biến môi trường `REDIS_URL` (hoặc `KV_URL`, code đọc được cả hai).
-   - Vào **Deployments**, bấm **Redeploy** để bản mới nhận biến môi trường.
-4. Mở link Vercel, bấm **Làm chủ phòng**, rồi bấm **Sao chép link mời** và gửi cho cả nhóm.
+**Cho người ở xa vào tạm thời:** `cloudflared tunnel --url http://localhost:3000` in ra một link công khai. Ping phụ thuộc điểm trung chuyển của Cloudflare, có thể cao hơn Render.
 
-Nếu mở trang mà thanh trạng thái cứ báo "đang kết nối lại…", hãy vào **Settings → Functions** của project, kiểm tra **Fluid compute** đang bật, và xem tài khoản đã được bật tính năng WebSockets (đang ở giai đoạn beta) chưa.
+## Deploy lên Render
 
-## Vì sao nên thêm Redis
+1. Đưa code lên GitHub.
+2. Vào dashboard.render.com, chọn **New → Blueprint**, chọn repo, rồi bấm **Apply**. Render đọc `render.yaml`: gói miễn phí, server Singapore, kiểm tra sống qua `/healthz`.
+3. Tuỳ chọn: tạo Redis miễn phí ở upstash.com, thêm biến môi trường `REDIS_URL` trong **Environment** của service. Có Redis thì bảng xếp hạng không bị mất khi server khởi động lại.
 
-Vercel có thể đưa người chơi của cùng một phòng vào các máy chủ khác nhau. Không có Redis, những người đó sẽ không thấy nhau. Có Redis, các máy chủ tự chuyển tin cho nhau, và chỉ dùng Redis khi phòng thật sự bị chia ra, nên tốn rất ít lượt gọi.
+Giới hạn của gói miễn phí:
+- Server ngủ sau 15 phút không có ai. Lần mở tiếp theo phải chờ khoảng 1 phút.
+- Băng thông mỗi tháng có hạn mức. Xem trang giá của Render.
 
-Redis cũng là nơi lưu bảng xếp hạng. Không có Redis, bảng xếp hạng chỉ nằm trong bộ nhớ và sẽ mất mỗi khi máy chủ khởi động lại.
+## Test
+
+```bash
+npm test
+```
+
+- **Test engine** (`test/engine.test.js`): kích thước map, vị trí spawn, vụ nổ, lửa qua cổng, khiên, rơi đồ khi chết, vùng bo, bom của người đã chết, thống kê cuối ván.
+- **Test relay** (`test/relay.test.js`): một chủ phòng, kick, giới hạn phòng, chống spam, chuyển tin điều khiển tới chủ phòng, bảng xếp hạng.
 
 ## Những điều cần biết
 
-- **Kết nối tự nối lại sau mỗi 5 phút.** Gói Hobby của Vercel giới hạn mỗi kết nối tối đa 5 phút. Game tự kết nối lại trong khoảng 1 giây và ván đang chơi vẫn tiếp tục, vì trạng thái ván nằm ở trình duyệt chủ phòng. Bạn có thể thấy khựng nhẹ lúc đó. Gói Pro cho phép tăng lên 800 giây bằng cách sửa `maxDuration` trong `vercel.json`.
-- **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã thì game tự tạo phòng mới. Muốn đổi phòng, chỉ cần sửa mã trên thanh địa chỉ.
-- **Bảng xếp hạng dùng chung cho mọi phòng** và nhận diện người chơi theo trình duyệt, không cần đăng nhập. Đổi trình duyệt hoặc xóa dữ liệu trang thì sẽ tính như người mới. Vì không có tài khoản, người rành kỹ thuật có thể gửi điểm giả, nên bảng này hợp để chơi vui với bạn bè hơn là thi đấu nghiêm túc.
-- **Vùng máy chủ** mặc định ở Mỹ (`iad1`). Nếu nhóm bạn ở Việt Nam, vào **Settings → Functions → Function Region** và chọn Singapore (`sin1`) để giảm độ trễ đáng kể. Nên chọn Redis cùng khu vực.
+- **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã thì game tự tạo phòng mới.
+- **Chủ phòng quyết định độ lag của cả phòng.** Nên để người có mạng tốt nhất làm chủ phòng. Chủ phòng chuyển tab thì game vẫn chạy.
+- **Bảng xếp hạng dùng chung cho mọi phòng**, và nhận diện người chơi theo trình duyệt, không cần đăng nhập. Đổi trình duyệt thì được tính là người mới.
+- **Sau khi cập nhật code, mọi người phải tải lại trang.** Trình duyệt và server cần cùng phiên bản.
+- **Phím tắt:**
+  - `Esc`: tạm dừng cả phòng và che màn hình bằng một file code giả.
+  - `` ` ``: chơi tiếp.
