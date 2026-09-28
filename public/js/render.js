@@ -14,7 +14,15 @@ function simulate(now) {
     if (hostGame && hostPz) holdInputs(hostGame, hostInputs());
     else if (hostGame) {
       const present = new Set(peers().map(p => p.peer));
-      for (const p of hostGame.players) if (p.alive && (!present.has(p.id) || kicked.has(p.id) || kicked.has(p.uid))) p.alive = false;
+      // a dropped connection gets RECONNECT_MS to come back (same tab = same peer id) before the player is out
+      const now = Date.now();
+      for (const p of hostGame.players) {
+        if (!p.alive) continue;
+        if (kicked.has(p.id) || kicked.has(p.uid)) { p.alive = false; continue; }
+        if (present.has(p.id)) { missingSince.delete(p.id); continue; }
+        if (!missingSince.has(p.id)) missingSince.set(p.id, now);
+        else if (now - missingSince.get(p.id) > RECONNECT_MS) { p.alive = false; missingSince.delete(p.id); }
+      }
       stepGame(hostGame, hostInputs(), dt, scores);
       if (hostGame.justEnded) recordRound(hostGame);
       if (hostGame.ph === 'end' && hostGame.timer <= 0) { hostGame = null; updateUI(); }

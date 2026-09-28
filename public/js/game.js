@@ -35,6 +35,15 @@ function setSnap(next) {
 }
 
 /* ---------- hosting ---------- */
+const RECONNECT_MS = 5000, missingSince = new Map();
+// when the host leaves, the remaining player with the smallest peer id takes over after a short grace period
+// (the server refuses a second host, so two players racing for it is harmless)
+function maybeTakeOverHost() {
+  if (hosting || mode !== 'online' || !room || !connected || kickedOut || !hostLeftAt || findHost()) return;
+  if (Date.now() - hostLeftAt < 1500) return;
+  const next = peers().map(p => p.peer).sort()[0];
+  if (next === myPeer) { hostLeftAt = 0; startHosting(); toast('Bạn là chủ phòng mới', 'Chủ phòng cũ đã rời đi.'); }
+}
 function startHosting() {
   if (!room || !connected) return;
   hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear(); gbSeen.clear(); kicked.clear();

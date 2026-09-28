@@ -48,7 +48,7 @@ function updateOverlay() {
   if (kickedOut) return setOverlay('Bạn đã bị kick', 'Chủ phòng đã mời bạn ra khỏi phòng #' + ROOM_ID + '. Đổi mã phòng trên thanh địa chỉ để vào phòng khác.');
   if (roomFull) return setOverlay('Phòng đã đầy', 'Phòng #' + ROOM_ID + ' đã đủ người. Đổi mã phòng trên thanh địa chỉ để tạo phòng khác.');
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
-  if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Bấm "Làm chủ phòng" để tiếp tục.' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
+  if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Đang chuyển chủ phòng cho người khác…' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
   if (s.ph === 'lobby') {
     const n = s.pl.length, md = (s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '') + (s.ru ? 'Luật hôm nay: ' + DAILY_RULES[s.ru] + '. ' : '');
     return setOverlay('Sảnh chờ', md + (hosting ? `${n} người đã sẵn sàng. Bấm "Bắt đầu ván" khi đủ người.` : `${n} người đã sẵn sàng. Đợi chủ phòng bắt đầu.`));
@@ -96,6 +96,11 @@ function renderList() {
     if (r.downed) tags.push('cần cứu!');
     if (mode === 'online' && r.id === myPeer) tags.push('bạn');
     if (mode === 'online' && r.id === hostPeer) tags.push('chủ phòng');
+    if (mode === 'online' && s && s.ph === 'play' && !r.dead && !peers().some(p => p.peer === r.id)) tags.push('mất kết nối');
+    if (mode === 'online') {
+      const pp = peers().find(p => p.peer === r.id), ms = r.id === myPeer ? myRtt : pp && pp.presence.rt;
+      if (typeof ms === 'number' && (r.id !== myPeer || myRtt)) tags.push(ms < 5 ? '<5ms' : ms + 'ms');
+    }
     if (hosting && kicked.has(r.id)) tags.push('đã kick');
     const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = tags.join(', ');
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score; sc.title = 'Số ván thắng trong phiên này';
@@ -186,6 +191,8 @@ function updateStatus() {
 }
 
 function updateUI() {
+  maybeTakeOverHost();
+  $('pauseBtn').textContent = (snap && snap.pz) || coverLocal ? '▶' : '⏸';
   const online = mode === 'online';
   $('hostBtn').hidden = !(online && room && connected && !hosting && !findHost());
   $('startBtn').hidden = !(online && hosting && !hostGame);
@@ -226,6 +233,8 @@ addEventListener('keydown', e => {
 });
 matchMedia('(max-width:860px)').addEventListener('change', e => { if (!e.matches) setDrawer(false); });
 $('localBtn').onclick = () => { if (mode === 'online') startLocal(); else stopLocal(); updateUI(); };
+// touch screens have no Esc / ` keys: one button toggles the pause
+$('pauseBtn').onclick = () => { setPause(!((snap && snap.pz) || coverLocal)); updateUI(); };
 
 updateUI();
 initNet();

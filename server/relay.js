@@ -242,6 +242,7 @@ function onConnection(ws) {
     if (now - winStart >= 1000) { winStart = now; winCount = 0; }
     if (++winCount > LIMITS.MSG_PER_SEC) { ws.close(1008, 'too many messages'); return; }
     let m; try { m = JSON.parse(data); } catch { return; }
+    if (m.t === 'ping') { if (typeof m.ts === 'number') ws.send(JSON.stringify({ t: 'pong', ts: m.ts })); return; }   // round-trip time for the player list
     if (m.t === 'join') {
       if (r) return;
       const roomId = cleanRoom(m.room), peer = cleanId(m.peer);

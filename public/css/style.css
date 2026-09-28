@@ -130,6 +130,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
 .dpad button{border:1px solid var(--line);border-radius:4px;background:var(--input);color:var(--ink);font-size:20px;touch-action:none}
 .dpad button.on{background:#4a4a4a}
 .dpad .u{grid-area:1/2}.dpad .l{grid-area:2/1}.dpad .r{grid-area:2/3}.dpad .d{grid-area:3/2}
+.pausebtn{width:52px;height:52px;border-radius:50%;border:1px solid #3c3c3c;background:var(--input);color:var(--soft);font-size:18px;touch-action:manipulation}
 .bombbtn{width:100px;height:100px;border-radius:50%;border:1px solid #4a4a4a;background:#3a3a3a;color:var(--ink);font:inherit;font-weight:600;font-size:15px;touch-action:none}
 .bombbtn.on{background:#4a4a4a}
 .statusbar{display:flex;gap:18px;flex-wrap:wrap;align-items:center;height:22px;padding:0 10px;background:var(--chrome);border-top:1px solid var(--line);color:var(--soft);font-size:12px}

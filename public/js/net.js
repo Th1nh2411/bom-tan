@@ -18,7 +18,7 @@ let hostDaily = true;  // apply today's rule to new rounds
 let hostGame = null;
 let scores = {};
 let snap = null, lastSnapObj = null, lastSnapGrid = null;
-let hostPeer = null, hostLeftNotice = false;
+let hostPeer = null, hostLeftNotice = false, hostLeftAt = 0, myRtt = 0;
 // kick: the host keeps a ban list of player keys (per browser) and publishes it; a kicked client disconnects itself
 const kicked = new Set();
 let kickedOut = false, roomFull = false;
@@ -51,7 +51,9 @@ function createRoom(roomId, peerId, byId) {
   let peerMap = new Map(), peersArr = Object.freeze([]);
   let mine = {}, pending = null, lbFn = null;
   const connFns = [], peersFns = [];
-  let denyFn = null, fatalFn = null;   // server refused our host claim / closed us for good (kicked, room full)
+  let denyFn = null, fatalFn = null, rttFn = null;
+  // measure the round trip to the server every 2s (shown in the player list)
+  setInterval(() => { if (isConn) send({ t: 'ping', ts: performance.now() }); }, 2000);   // server refused our host claim / closed us for good (kicked, room full)
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/ws';
   const mergeP = (a, p) => { const o = { ...a }; for (const k of Object.keys(p || {})) { if (p[k] === null) delete o[k]; else o[k] = p[k]; } return o; };
   const entry = (peer, by, presence) => Object.freeze({ peer, by: by || null, isMe: peer === peerId, sameTab: peer === peerId, kind: 'viewer', guest: false, presence: Object.freeze(presence || {}), updatedAt: Date.now() });
@@ -94,6 +96,8 @@ function createRoom(roomId, peerId, byId) {
       const old = peerMap.get(m.peer);
       if (!old || m.peer === peerId) return;
       peerMap.delete(m.peer); emit([], [old]);
+    } else if (m.t === 'pong') {
+      if (rttFn && typeof m.ts === 'number') rttFn(Math.max(0, Math.round(performance.now() - m.ts)));
     } else if (m.t === 'deny') {
       if (denyFn) denyFn(m.what);
     } else if (m.t === 'lb') {
@@ -139,6 +143,7 @@ function createRoom(roomId, peerId, byId) {
     onLeaderboard(fn) { lbFn = fn; send({ t: 'lb' }); },
     recordLeaderboard(rows) { send({ t: 'lbrec', rows }); },
     onDeny(fn) { denyFn = fn; },
+    onRtt(fn) { rttFn = fn; },
     onFatal(fn) { fatalFn = fn; },
     leave() { stopped = true; try { if (ws) ws.close(); } catch (e) {} setConn(false); }
   };
@@ -158,6 +163,7 @@ function initNet() {
   room.onConnection(c => { connected = c; updateNetText(); updateUI(); });
   // someone else became host first: step back and follow them
   room.onDeny(what => { if (what === 'host' && hosting) { stopHosting(); onRoomChange(); updateUI(); } });
+  room.onRtt(ms => { myRtt = ms; room.presence({ rt: Math.round(ms / 5) * 5 }).catch(() => {}); });
   room.onFatal(code => { if (code === 4001) kickedOut = true; else roomFull = true; setSnap(null); updateUI(); });
   room.onPeers(ch => {
     const me = ch.peers.find(p => p.sameTab);
@@ -181,8 +187,8 @@ function onRoomChange() {
   const prevHost = hostPeer;
   hostPeer = hosting ? myPeer : (h ? h.peer : null);
   if (!hosting && hostPeer && hostPeer !== prevHost) room.resync();
-  if (prevHost && !hostPeer && !hosting) hostLeftNotice = true;
-  if (hostPeer) hostLeftNotice = false;
+  if (prevHost && !hostPeer && !hosting) { hostLeftNotice = true; hostLeftAt = Date.now(); }
+  if (hostPeer) { hostLeftNotice = false; hostLeftAt = 0; }
   if (!hosting && mode === 'online' && h && (h.presence.g !== lastSnapObj || h.presence.gg !== lastSnapGrid)) {
     lastSnapObj = h.presence.g; lastSnapGrid = h.presence.gg;
     setSnap(sanitizeSnap({ ...h.presence.g, g: h.presence.gg }));
