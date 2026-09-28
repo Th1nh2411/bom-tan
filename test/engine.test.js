@@ -240,3 +240,23 @@ test('zombie: humans still standing when time runs out win', () => {
   assert.deepEqual([...g.winnerIds].sort(), [h1.id, h2.id].sort());
   assert.ok(g.grid.every(c => c !== '#' || true) && !g.sdk, 'no closing walls in zombie mode');
 });
+
+test('daily rule: same rule for the same date, and each rule changes the round', () => {
+  const e = loadEngine();
+  assert.equal(e.dailyRuleFor('2026-09-28'), e.dailyRuleFor('2026-09-28'));
+  const seen = new Set(Array.from({ length: 60 }, (_, k) => e.dailyRuleFor(`2026-10-${String(k % 28 + 1).padStart(2, '0')}-${k}`)));
+  assert.ok(seen.size >= 5, 'dates spread over several rules');
+  const slots = [{ id: 'a' }, { id: 'b' }];
+  const g = rule => e.newGame(slots, false, { rule });
+  assert.equal(g('kick').players[0].kick, true);
+  assert.equal(g('fire').players[0].fire, 4);
+  assert.equal(g('bombs').players[0].maxB, 3);
+  assert.equal(g('shield').players[1].shield, true);
+  assert.ok(g('fast').fuse < e.FUSE);
+  assert.equal(g('nonsense').rule, '', 'unknown rules are ignored');
+  const ob = g('onebomb'); ob.ph = 'play';
+  const p = ob.players[0]; ob.grid[e.idx(p.x, p.y)] = 'b';
+  e.stepGame(ob, {}, 1 / 60, {});
+  assert.equal(p.maxB, 1, 'one-bomb rule: bomb pickups do nothing');
+  assert.equal(p.fire, 8);
+});

@@ -52,6 +52,17 @@ button.b[hidden]{display:none}
 .teams button{font:inherit;border:1px solid transparent;border-left:3px solid;border-radius:2px;padding:4px 8px;cursor:pointer;color:var(--ink);background:var(--input)!important;text-align:left}
 #team0{border-left-color:var(--red)} #team1{border-left-color:var(--blue)}
 .teams button[aria-pressed="true"]{border-color:#5a5a5a;background:#3a3a3a!important}
+.hats{display:flex;flex-wrap:wrap;gap:4px}
+.hats button{font:inherit;font-size:12px;padding:2px 8px;border:1px solid #3c3c3c;border-radius:2px;background:transparent;color:var(--soft);cursor:pointer}
+.hats button[aria-pressed="true"]{background:#3a3a3a;color:var(--ink);border-color:#5a5a5a}
+.ach{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:12px}
+.ach li{display:flex;flex-direction:column;color:var(--muted)}
+.ach li b{font-weight:400}
+.ach li.on{color:var(--soft)}
+.ach li.on b{color:var(--ink);font-weight:600}
+.toast{position:fixed;right:14px;bottom:34px;z-index:30;max-width:320px;display:flex;flex-direction:column;gap:2px;padding:10px 14px;background:#252526;border:1px solid #3c3c3c;border-left:3px solid var(--yellow);box-shadow:0 4px 14px rgba(0,0,0,.4);font-size:12px;color:var(--soft)}
+.toast[hidden]{display:none}
+.toast b{color:var(--ink);font-size:13px}
 .emotes{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
 .emotes button{font-size:16px;line-height:1;padding:5px 0;border-radius:2px;border:0;background:var(--input);cursor:pointer;filter:grayscale(1);opacity:.6}
 .emotes button:hover{opacity:1}

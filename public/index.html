@@ -23,6 +23,7 @@
       <label class="f" for="name"><span class="tk-kw">let</span>tênTrongGame =</label>
       <input type="text" id="name" maxlength="12" autocomplete="off">
       <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
+      <div id="hatsWrap" hidden><label class="f">Mũ</label><div class="hats" id="hats" role="group" aria-label="Mũ"></div></div>
       <label class="chk"><input type="checkbox" id="joinChk" checked> Tham gia ván tới</label>
     </section>
     <section class="sec" id="teamCard" hidden>
@@ -36,6 +37,7 @@
       <h2>điều khiển phòng</h2>
       <button class="b host" id="hostBtn" hidden>Làm chủ phòng</button>
       <button class="b" id="modeBtn" hidden>Chế độ: Solo</button>
+      <button class="b" id="ruleBtn" hidden>Luật hôm nay: Bật</button>
       <button class="b run" id="startBtn" hidden>▶ Bắt đầu ván</button>
       <button class="b" id="lobbyBtn" hidden>■ Dừng, về sảnh</button>
       <button class="b" id="inviteBtn">Sao chép link mời</button>
@@ -52,6 +54,10 @@
     <section class="sec" id="lbCard" hidden>
       <h2>bảng xếp hạng</h2>
       <div id="lbBody"></div>
+    </section>
+    <section class="sec">
+      <h2 id="achTitle">thành tích</h2>
+      <ul class="ach" id="achList"></ul>
     </section>
     <section class="sec help">
       <h2>hướng dẫn</h2>
@@ -137,6 +143,7 @@
   <span id="stRoom"></span>
   <span id="stHost"></span>
 </footer>
+<div class="toast" id="toast" role="status" hidden></div>
 <script src="js/engine.js"></script>
 <script src="js/common.js"></script>
 <script src="js/sound.js"></script>
@@ -144,6 +151,7 @@
 <script src="js/net.js"></script>
 <script src="js/game.js"></script>
 <script src="js/render.js"></script>
+<script src="js/progress.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

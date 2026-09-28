@@ -14,6 +14,7 @@ function resolveProfiles(ids) {
 let mode = 'online';          // 'online' | 'local'
 let hosting = false;
 let hostMode = 's';   // 's' solo, 't' teams, 'z' zombie
+let hostDaily = true;  // apply today's rule to new rounds
 let hostGame = null;
 let scores = {};
 let snap = null, lastSnapObj = null, lastSnapGrid = null;
@@ -29,7 +30,7 @@ function inputChanged() {
   if (room && mode === 'online' && !hosting) { const d = ctlDir(ctlA); room.presence({ dx: d.dx, dy: d.dy, b: d.b, bc: d.bc }).catch(() => {}); }
 }
 function pushMe() {
-  if (room) room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam }).catch(() => {});
+  if (room) room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null }).catch(() => {});
   renderList();
 }
 
@@ -164,7 +165,7 @@ function initNet() {
     onRoomChange();
   });
   const d = ctlDir(ctlA);
-  room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, dx: d.dx, dy: d.dy, b: d.b, bc: -1 });
+  room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, dx: d.dx, dy: d.dy, b: d.b, bc: -1 });
 }
 
 function peers() { return room ? room.peers() : []; }
@@ -218,7 +219,7 @@ function sanitizeSnap(s) {
       downT: Math.max(0, (+a[11] || 0) / 10), inv: !!a[12],
       color, name: cleanName(a[5]) || 'Ẩn danh', dir: a[6] | 0, score: a[7] | 0,
       team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10], shield: !!a[13],
-      ck: Math.min(3, Math.max(0, a[14] | 0)), ct: Math.max(0, a[15] | 0), zb: Math.min(2, Math.max(0, a[16] | 0))
+      ck: Math.min(3, Math.max(0, a[14] | 0)), ct: Math.max(0, a[15] | 0), zb: Math.min(2, Math.max(0, a[16] | 0)), hat: HATS[a[17]] ? a[17] : ''
     };
   });
   return {
@@ -230,6 +231,7 @@ function sanitizeSnap(s) {
     kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : [],
     sd: typeof s.sd === 'number' ? s.sd | 0 : -1,
     zt: typeof s.zt === 'number' ? s.zt | 0 : -1,
+    ru: DAILY_RULES[s.ru] ? s.ru : '',
     wi: Array.isArray(s.wi) ? s.wi.map(String).slice(0, 8) : [],
     rw: Array.isArray(s.rw) ? s.rw.map(n => n | 0).filter(n => n >= 0 && n < W * H).slice(0, 32) : [],
     st: Array.isArray(s.st) ? s.st.filter(a => Array.isArray(a) && a.length >= 5).slice(0, 8).map(a => ({ id: String(a[0]), k: a[1] | 0, it: a[2] | 0, rv: a[3] | 0, by: String(a[4] || ''), zb: a[5] | 0, gk: a[6] | 0 })) : []

@@ -50,7 +50,7 @@ function updateOverlay() {
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
   if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Bấm "Làm chủ phòng" để tiếp tục.' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
   if (s.ph === 'lobby') {
-    const n = s.pl.length, md = s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '';
+    const n = s.pl.length, md = (s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '') + (s.ru ? 'Luật hôm nay: ' + DAILY_RULES[s.ru] + '. ' : '');
     return setOverlay('Sảnh chờ', md + (hosting ? `${n} người đã sẵn sàng. Bấm "Bắt đầu ván" khi đủ người.` : `${n} người đã sẵn sàng. Đợi chủ phòng bắt đầu.`));
   }
   const me = s.pl.find(p => p.id === myPeer);
@@ -58,7 +58,7 @@ function updateOverlay() {
     let sub = me ? 'Sẵn sàng!' : 'Bạn đang xem ván này, ván sau sẽ vào chơi.';
     if (me && s.md === 't' && (me.team === 0 || me.team === 1)) sub = 'Bạn ở ' + TEAM_NAMES[me.team] + '. Sẵn sàng!';
     if (me && s.md === 'z') sub = me.zb ? 'Bạn là ZOMBIE! Chạm vào người khác để lây.' : 'Chạy khỏi zombie trong 90 giây. Bom chỉ làm zombie choáng 3 giây.';
-    return setOverlay(String(s.tm || 1), sub);
+    return setOverlay(String(s.tm || 1), sub + (s.ru ? ' Luật hôm nay: ' + DAILY_RULES[s.ru] + '.' : ''));
   }
   if (s.ph === 'end') return setOverlay(winnerText(s), 'Sắp về sảnh chờ');
   setOverlay('', '');
@@ -190,6 +190,8 @@ function updateUI() {
   $('hostBtn').hidden = !(online && room && connected && !hosting && !findHost());
   $('startBtn').hidden = !(online && hosting && !hostGame);
   $('modeBtn').hidden = !(online && hosting && !hostGame);
+  $('ruleBtn').hidden = $('modeBtn').hidden;
+  $('ruleBtn').textContent = 'Luật hôm nay: ' + (hostDaily ? 'Bật' : 'Tắt') + ' (' + DAILY_RULES[dailyRuleFor(todayVN())] + ')';
   $('modeBtn').textContent = 'Chế độ: ' + MODE_NAMES[hostMode] + ' (bấm để đổi)';
   $('lobbyBtn').hidden = !(online && hosting && hostGame);
   $('localBtn').hidden = hosting;
@@ -204,6 +206,7 @@ $('inviteBtn').onclick = async () => {
   setTimeout(() => { btn.textContent = 'Sao chép link mời'; }, 2000);
 };
 addEventListener('hashchange', () => location.reload());
+$('ruleBtn').onclick = () => { hostDaily = !hostDaily; publishHost(true); updateUI(); };
 $('modeBtn').onclick = () => { hostMode = { s: 't', t: 'z', z: 's' }[hostMode]; publishHost(true); updateUI(); };
 $('startBtn').onclick = () => { hostPz = false; hostStartRound(); publishHost(true); updateUI(); };
 $('lobbyBtn').onclick = () => { hostGame = null; publishHost(true); updateUI(); };

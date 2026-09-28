@@ -213,6 +213,7 @@ function draw(dt) {
     ctx.fillStyle = p.zb ? ZOMBIE_COLOR : p.color; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1.5, T * .07);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
     if (isMe) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, T * .04); ctx.beginPath(); ctx.arc(cx, cy, r + T * .08, 0, 7); ctx.stroke(); }
+    if (p.hat) drawHat(p.hat, cx, cy, r);
     if (p.ck && p.alive) {
       // cursed: a dashed ring that spins, plus a small skull
       ctx.save(); ctx.setLineDash([T * .08, T * .07]); ctx.lineDashOffset = -now / 40;

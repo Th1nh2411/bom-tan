@@ -59,7 +59,31 @@ function infect(g, p, by) { p.zb = true; p.inv = INFECT_INV; p.ck = 0; p.ct = 0;
 function portalExit(i) { for (const [a, b] of PORTALS) { if (i === a) return b; if (i === b) return a; } return -1; }
 function isWallish(c) { return c === '#' || c === 'x' || c === 'X'; }
 
-// opts.mode: 's' solo, 't' teams, 'z' zombie (teams stays for old callers)
+// Daily rule: one twist per day, the same for everyone (picked from the date in Vietnam time).
+const DAILY_RULES = {
+  kick: 'Ai cũng có găng đá bom', fire: 'Khởi đầu với tầm nổ 4', bombs: 'Khởi đầu với 3 quả bom', fast: 'Bom nổ nhanh gấp rưỡi',
+  speed: 'Ai cũng chạy nhanh', shield: 'Ai cũng có khiên', curse: 'Mùa lời nguyền: nhiều vật phẩm xấu', onebomb: 'Chỉ 1 quả bom, nhưng nổ cực xa',
+};
+function dailyRuleFor(dateStr) {
+  let h = 0;
+  for (const ch of dateStr) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const keys = Object.keys(DAILY_RULES);
+  return keys[h % keys.length];
+}
+const todayVN = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+function applyRule(g) {
+  for (const p of g.players) {
+    if (g.rule === 'kick') p.kick = true;
+    else if (g.rule === 'fire') p.fire = 4;
+    else if (g.rule === 'bombs') p.maxB = 3;
+    else if (g.rule === 'speed') p.spd = 3;
+    else if (g.rule === 'shield') p.shield = true;
+    else if (g.rule === 'onebomb') p.fire = 8;
+  }
+  if (g.rule === 'fast') g.fuse = FUSE / 1.5;
+}
+
+// opts.mode: 's' solo, 't' teams, 'z' zombie (teams stays for old callers); opts.rule: a DAILY_RULES key or ''
 function newGame(slots, teams, opts = {}) {
   const gmode = opts.mode || (teams ? 't' : 's');
   teams = gmode === 't';
@@ -80,11 +104,12 @@ function newGame(slots, teams, opts = {}) {
     if (grid[i] !== '.' || keepClear(x, y)) continue;
     if (Math.random() < 0.72) {
       grid[i] = 'x';
-      if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.26 ? 'b' : r < 0.52 ? 'f' : r < 0.66 ? 's' : r < 0.78 ? 'k' : r < 0.90 ? 'h' : 'c'; }
+      if (opts.rule === 'curse' && Math.random() < 0.12) hidden[i] = 'c';
+      else if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.26 ? 'b' : r < 0.52 ? 'f' : r < 0.66 ? 's' : r < 0.78 ? 'k' : r < 0.90 ? 'h' : 'c'; }
     }
   }
   const players = slots.map((s, k) => ({
-    id: s.id, uid: s.uid || null, name: s.name, color: s.color, team: teams ? s.team : k,
+    id: s.id, uid: s.uid || null, name: s.name, color: s.color, hat: s.hat || '', team: teams ? s.team : k,
     x: spawns[k][0], y: spawns[k][1], alive: true,
     maxB: 1, fire: 2, spd: 0, kick: false, shield: false, ck: 0, ct: 0, dir: 2, down: 0, downBy: null, inv: 0,
     lastB: null, lastTp: null, pass: [], lock: -1
@@ -93,11 +118,13 @@ function newGame(slots, teams, opts = {}) {
     const z = players[Math.floor(Math.random() * players.length)];
     z.zb = true; z.z0 = true;
   }
-  return {
-    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode,
+  const g = {
+    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode, rule: DAILY_RULES[opts.rule] ? opts.rule : '',
     ph: 'count', timer: COUNT_T, grid, hidden, bombs: [], flames: new Map(), burn: new Map(),
     players, winner: null, winnerIds: [], kills: [], revives: [], bid: 0, justEnded: false
   };
+  applyRule(g);
+  return g;
 }
 
 function blocked(g, x, y, p) {
@@ -222,7 +249,7 @@ function placeBomb(g, p, cellHint) {
   }
   if (g.bombs.some(b => b.i === i)) return;
   if (g.bombs.filter(b => b.owner === p.id).length >= p.maxB) return;
-  const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: FUSE, r: p.fire, owner: p.id };
+  const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: g.fuse || FUSE, r: p.fire, owner: p.id };
   g.bombs.push(b);
   for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
 }
@@ -376,7 +403,7 @@ function stepGame(g, inputs, dt, scores) {
     p.pass = p.pass.filter(id => { const b = g.bombs.find(o => o.id === id); return b && b.i === ci; });
     const c = p.zb ? '.' : g.grid[ci];   // zombies do not pick things up
     if (POWERS.includes(c)) p.picks = (p.picks || 0) + 1;
-    if (c === 'b') { p.maxB = Math.min(8, p.maxB + 1); g.grid[ci] = '.'; }
+    if (c === 'b') { if (g.rule !== 'onebomb') p.maxB = Math.min(8, p.maxB + 1); g.grid[ci] = '.'; }
     else if (c === 'f') { p.fire = Math.min(8, p.fire + 1); g.grid[ci] = '.'; }
     else if (c === 's') { p.spd = Math.min(5, p.spd + 1); g.grid[ci] = '.'; }
     else if (c === 'k') { p.kick = true; g.grid[ci] = '.'; }
@@ -471,12 +498,12 @@ function stepGame(g, inputs, dt, scores) {
 
 function snapshot(g, scores) {
   return {
-    rid: g.rid, md: g.mode || (g.teams ? 't' : 's'), gw: W, gh: H,
+    rid: g.rid, md: g.mode || (g.teams ? 't' : 's'), gw: W, gh: H, ru: g.rule || '',
     ph: g.ph, tm: Math.ceil(Math.max(0, g.timer)),
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
-    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0), p.zb ? (p.stun > 0 ? 2 : 1) : 0]),
+    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0), p.zb ? (p.stun > 0 ? 2 : 1) : 0, p.hat || '']),
     w: g.winner || '', pz: g.pz ? 1 : 0,
     sd: g.ph === 'play' && g.mode !== 'z' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
     zt: g.ph === 'play' && g.mode === 'z' ? Math.max(0, Math.ceil(ZOMBIE_T - (g.t || 0))) : -1,

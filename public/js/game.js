@@ -27,6 +27,7 @@ function setSnap(next) {
     for (let i = 0; i < W * H; i++) if (POWERS.includes(prev.g[i]) && next.g[i] === '.' && !next.fl.has(i)) { sfx.pickup(); break; }
   }
   if (prev.ph !== 'end' && next.ph === 'end') {
+    onRoundEnd(next);
     const me = next.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
     const won = me && next.wi.includes(me.id);
     if (mode === 'local' || won) sfx.win(); else sfx.lose();
@@ -59,7 +60,7 @@ function hostStartRound() {
     if (c < 0 || c > 7 || taken.has(c)) c = [0,1,2,3,4,5,6,7].find(k => !taken.has(k));
     taken.add(c);
     const t = p.sameTab ? myTeam : p.presence.t;
-    return { id: p.peer, uid: p.by || null, name: peerName(p), color: c, team: (t === 0 || t === 1) ? t : -1 };
+    return { id: p.peer, uid: p.by || null, name: peerName(p), color: c, team: (t === 0 || t === 1) ? t : -1, hat: HATS[p.presence.hat] ? p.presence.hat : '' };
   });
   if (hostMode === 't') {
     for (const s of slots) if (s.team < 0) {
@@ -72,7 +73,7 @@ function hostStartRound() {
     slots = [];
     for (let k = 0; k < Math.max(t0.length, t1.length); k++) { if (t0[k]) slots.push(t0[k]); if (t1[k]) slots.push(t1[k]); }
   }
-  hostGame = newGame(slots, hostMode === 't', { mode: hostMode });
+  hostGame = newGame(slots, hostMode === 't', { mode: hostMode, rule: hostDaily ? dailyRuleFor(todayVN()) : '' });
 }
 const clampDir = v => (v === 1 || v === -1) ? v : 0;
 function hostInputs() {
@@ -107,7 +108,8 @@ function lobbySnap() {
   setDims(sz[0], sz[1]);
   return {
     rid: 0, md: hostMode, ph: 'lobby', tm: 0, g: emptyGrid, bm: [], fl: [], gw: W, gh: H,
-    pl: js.map(p => { const t = p.sameTab ? myTeam : p.presence.t; return [p.peer, -100, -100, 1, (p.presence.c | 0) & 7, peerName(p), 2, scores[p.peer] || 0, (t === 0 || t === 1) ? t : -1, 0, 0]; }),
+    pl: js.map(p => { const t = p.sameTab ? myTeam : p.presence.t; return [p.peer, -100, -100, 1, (p.presence.c | 0) & 7, peerName(p), 2, scores[p.peer] || 0, (t === 0 || t === 1) ? t : -1, 0, 0, 0, 0, 0, 0, 0, 0, HATS[p.presence.hat] ? p.presence.hat : '']; }),
+    ru: hostDaily ? dailyRuleFor(todayVN()) : '',
     w: ''
   };
 }
