@@ -36,9 +36,39 @@ function winnerText(s) {
   if (p && s.pl.length >= 2) return p.name + ' thắng!';
   return s.pl.length < 2 ? 'Hết ván' : 'Hòa!';
 }
+// VS Code welcome-page style: the room buttons that are showing, mirrored as links on the board
+const START_BTNS = ['hostBtn', 'startBtn', 'inviteBtn', 'localBtn'];
+function renderStart(show) {
+  const guest = !isLoggedIn();
+  const box = $('ovStart'), btns = show ? START_BTNS.map($).filter(b => !b.hidden && (!guest || b.id === 'localBtn')) : [];
+  const key = guest + btns.map(b => b.id + b.textContent).join('|');
+  box.hidden = $('ovKeys').hidden = !show;
+  if (box.dataset.key === key) return;
+  box.dataset.key = key; box.textContent = '';
+  if (!btns.length) return;
+  const h = document.createElement('h3'); h.textContent = 'Bắt đầu'; box.appendChild(h);
+  for (const b of btns) {
+    const a = document.createElement('button');
+    a.className = 'ov-link'; a.innerHTML = b.innerHTML;
+    a.onclick = () => b.click();
+    box.appendChild(a);
+  }
+  if (guest) {
+    const a = document.createElement('button');
+    a.className = 'ov-link'; a.innerHTML = '<i>→</i>Đăng nhập để chơi online';
+    a.onclick = () => {
+      if (matchMedia('(max-width:860px)').matches) setDrawer(true);   // phones: the sign-in lives in the drawer
+      // point at the Google button (a cross-origin iframe we cannot click for the user), and try Google's own prompt
+      const g = $('loginGate'); g.classList.remove('flash'); void g.offsetWidth; g.classList.add('flash');
+      try { google.accounts.id.prompt(); } catch (e) {}
+    };
+    box.appendChild(a);
+  }
+}
 function updateOverlay() {
   const s = snap;
   renderStats(s);
+  renderStart(mode === 'online' && !kickedOut && !roomFull && (!s || s.ph === 'lobby'));
   if (mode === 'local') {
     if (!s) return setOverlay('', '');
     if (s.ph === 'count') return setOverlay(String(s.tm || 1), 'P1: WASD + Space. P2: mũi tên + Enter.');
@@ -48,9 +78,10 @@ function updateOverlay() {
   if (kickedOut) return setOverlay('Bạn đã bị kick', 'Chủ phòng đã mời bạn ra khỏi phòng #' + ROOM_ID + '. Đổi mã phòng trên thanh địa chỉ để vào phòng khác.');
   if (roomFull) return setOverlay('Phòng đã đầy', 'Phòng #' + ROOM_ID + ' đã đủ người. Đổi mã phòng trên thanh địa chỉ để tạo phòng khác.');
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
+  if (!s && !isLoggedIn()) return setOverlay('Bom Tấn', 'Đăng nhập để chơi online, hoặc chơi 2 người trên 1 máy ngay.');
   if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Đang chuyển chủ phòng cho người khác…' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
   if (s.ph === 'lobby') {
-    const n = s.pl.length, md = (s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '') + (s.ru ? 'Luật hôm nay: ' + DAILY_RULES[s.ru] + '. ' : '');
+    const n = s.pl.length, md = (s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '');
     return setOverlay('Sảnh chờ', md + (hosting ? `${n} người đã sẵn sàng. Bấm "Bắt đầu ván" khi đủ người.` : `${n} người đã sẵn sàng. Đợi chủ phòng bắt đầu.`));
   }
   const me = s.pl.find(p => p.id === myPeer);
@@ -58,13 +89,21 @@ function updateOverlay() {
     let sub = me ? 'Sẵn sàng!' : 'Bạn đang xem ván này, ván sau sẽ vào chơi.';
     if (me && s.md === 't' && (me.team === 0 || me.team === 1)) sub = 'Bạn ở ' + TEAM_NAMES[me.team] + '. Sẵn sàng!';
     if (me && s.md === 'z') sub = me.zb ? 'Bạn là ZOMBIE! Chạm vào người khác để lây.' : 'Chạy khỏi zombie trong 90 giây. Bom chỉ làm zombie choáng 3 giây.';
-    return setOverlay(String(s.tm || 1), sub + (s.ru ? ' Luật hôm nay: ' + DAILY_RULES[s.ru] + '.' : ''));
+    return setOverlay(String(s.tm || 1), sub);
   }
   if (s.ph === 'end') return setOverlay(winnerText(s), 'Sắp về sảnh chờ');
   setOverlay('', '');
 }
 
+// sidebar profile row: avatar in the player's colour, name, account
+function renderMe() {
+  const av = $('meAvatar'), ini = (myName.trim()[0] || '?').toUpperCase();
+  if (av.textContent !== ini) av.textContent = ini;
+  av.style.background = COLORS[myColor];
+  if ($('meName').textContent !== myName) $('meName').textContent = myName;
+}
 function renderList() {
+  renderMe();
   const ol = $('plist'); ol.textContent = '';
   let rows = [];
   const s = snap, now = performance.now();
@@ -74,6 +113,7 @@ function renderList() {
   } else if (mode === 'online' && room) {
     rows = joinedPeers().map(p => ({ id: p.peer, name: peerName(p), color: COLORS[(p.presence.c | 0) & 7], score: 0, dead: false, team: -1 }));
   }
+  $('pcount').textContent = rows.length || '';
   if (!rows.length) { const li = document.createElement('p'); li.className = 'empty'; li.textContent = 'Chưa có ai trong phòng.'; ol.appendChild(li); return; }
   rows.sort((a, b) => (a.team - b.team) || (b.score - a.score));
   const accIds = [];
@@ -196,25 +236,22 @@ function updateUI() {
   const online = mode === 'online';
   $('hostBtn').hidden = !(online && room && connected && !hosting && !findHost());
   $('startBtn').hidden = !(online && hosting && !hostGame);
-  $('modeBtn').hidden = !(online && hosting && !hostGame);
-  $('ruleBtn').hidden = $('modeBtn').hidden;
-  $('ruleBtn').textContent = 'Luật hôm nay: ' + (hostDaily ? 'Bật' : 'Tắt') + ' (' + DAILY_RULES[dailyRuleFor(todayVN())] + ')';
-  $('modeBtn').textContent = 'Chế độ: ' + MODE_NAMES[hostMode] + ' (bấm để đổi)';
+  $('modeSeg').hidden = !(online && hosting && !hostGame);
+  for (const b of $('modeSeg').children) b.setAttribute('aria-checked', b.dataset.m === hostMode ? 'true' : 'false');
   $('lobbyBtn').hidden = !(online && hosting && hostGame);
-  $('localBtn').hidden = hosting;
-  $('localBtn').textContent = online ? 'Chơi 2 người trên 1 máy' : 'Thoát chế độ 1 máy';
+  $('localBtn').lastChild.textContent = online ? 'Chơi 2 người trên 1 máy' : 'Thoát chế độ 1 máy';
   $('teamCard').hidden = !(online && snap && snap.md === 't');
+  document.body.classList.toggle('local', !online);   // local mode needs no sign-in: the login gate steps aside
 }
 $('hostBtn').onclick = () => startHosting();
 $('inviteBtn').onclick = async () => {
-  const btn = $('inviteBtn'), link = location.href;
+  const btn = $('inviteBtn').lastChild, link = location.href;
   try { await navigator.clipboard.writeText(link); btn.textContent = 'Đã sao chép link phòng #' + ROOM_ID; }
   catch (e) { prompt('Gửi link này cho bạn bè:', link); }
   setTimeout(() => { btn.textContent = 'Sao chép link mời'; }, 2000);
 };
 addEventListener('hashchange', () => location.reload());
-$('ruleBtn').onclick = () => { hostDaily = !hostDaily; publishHost(true); updateUI(); };
-$('modeBtn').onclick = () => { hostMode = { s: 't', t: 'z', z: 's' }[hostMode]; publishHost(true); updateUI(); };
+$('modeSeg').onclick = e => { const b = e.target.closest('button[data-m]'); if (!b) return; hostMode = b.dataset.m; publishHost(true); updateUI(); };
 $('startBtn').onclick = () => { hostPz = false; hostStartRound(); publishHost(true); updateUI(); };
 $('lobbyBtn').onclick = () => { hostGame = null; publishHost(true); updateUI(); };
 function setDrawer(open) {
@@ -232,23 +269,23 @@ addEventListener('keydown', e => {
   setPause(true);
 });
 matchMedia('(max-width:860px)').addEventListener('change', e => { if (!e.matches) setDrawer(false); });
-$('localBtn').onclick = () => { if (mode === 'online') startLocal(); else stopLocal(); updateUI(); };
+// drop focus so player 2's Enter (bomb) does not click this button again and leave local mode
+$('localBtn').onclick = () => { $('localBtn').blur(); if (mode === 'online') { if (hosting) stopHosting(); startLocal(); } else stopLocal(); updateUI(); };
+$('gateExitBtn').onclick = () => { $('gateExitBtn').blur(); stopLocal(); updateUI(); };
+$('gateLocalBtn').onclick = () => { $('gateLocalBtn').blur(); setDrawer(false); if (hosting) stopHosting(); startLocal(); updateUI(); };
 // touch screens have no Esc / ` keys: one button toggles the pause
 $('pauseBtn').onclick = () => { setPause(!((snap && snap.pz) || coverLocal)); updateUI(); };
 
-/* ---------- info tabs (Thành tích, Bảng xếp hạng, Hướng dẫn) ---------- */
-document.querySelectorAll('.info-tab').forEach(tab => {
+/* ---------- editor tabs: bom_tan.js (the board), Thành tích, Bảng xếp hạng, Hướng dẫn ---------- */
+document.querySelectorAll('.tabbar .tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.info-tab').forEach(t => {
-      t.classList.remove('active');
-      t.setAttribute('aria-selected', 'false');
+    const view = tab.dataset.view;
+    document.querySelectorAll('.tabbar .tab').forEach(t => {
+      t.classList.toggle('active', t === tab);
+      t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
     });
-    document.querySelectorAll('.info-panel').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    tab.setAttribute('aria-selected', 'true');
-    const target = tab.dataset.tab;
-    const panel = $(target);
-    if (panel) panel.classList.add('active');
+    document.querySelectorAll('.info-panel').forEach(p => p.classList.toggle('active', p.id === view));
+    document.body.classList.toggle('view-doc', view !== 'game');
   });
 });
 

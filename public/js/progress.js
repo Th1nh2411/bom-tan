@@ -6,8 +6,8 @@ const HATS = {
 // check(ctx): ctx = { row (my end-of-round stats), won, md (mode), prog (lifetime totals) }
 const ACHIEVEMENTS = [
   { id: 'first_win', name: 'Lần đầu thắng', desc: 'Thắng 1 ván', hat: 'cap', check: c => c.won },
-  { id: 'veteran', name: 'Lão làng', desc: 'Chơi 30 ván', hat: 'beanie', check: c => c.prog.r >= 30 },
-  { id: 'champion', name: 'Nhà vô địch', desc: 'Thắng 10 ván', hat: 'crown', check: c => c.prog.w >= 10 },
+  { id: 'veteran', name: 'Lão làng', desc: 'Chơi 30 ván', hat: 'beanie', check: c => c.prog.r >= 30, goal: () => [prog.r, 30] },
+  { id: 'champion', name: 'Nhà vô địch', desc: 'Thắng 10 ván', hat: 'crown', check: c => c.prog.w >= 10, goal: () => [prog.w, 10] },
   { id: 'triple', name: 'Hat-trick', desc: 'Hạ 3 người trong 1 ván', hat: 'horns', check: c => c.md !== 'z' && c.row.k >= 3 },
   { id: 'ghost', name: 'Hồn ma báo thù', desc: 'Hạ người bằng bom thả khi đã chết', hat: 'halo', check: c => c.row.gk >= 1 },
   { id: 'pacifist', name: 'Tay không', desc: 'Thắng mà không nhặt vật phẩm nào', hat: 'bow', check: c => c.won && c.row.it === 0 },
@@ -49,16 +49,52 @@ function toast(title, body) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 5000);
 }
 
+// a character in the player's colour wearing the hat, for the achievement cards
+function hatPreview(h) {
+  const cv = document.createElement('canvas'), sz = 56, dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = cv.height = sz * dpr; cv.className = 'ach-pic';
+  const g = cv.getContext('2d'); g.scale(dpr, dpr);
+  const cx = sz / 2, cy = sz / 2 + 7, r = 15;
+  g.fillStyle = '#00000055'; g.beginPath(); g.ellipse(cx, cy + r + 3, r * .8, 3, 0, 0, 7); g.fill();
+  g.fillStyle = COLORS[myColor]; g.strokeStyle = '#181818'; g.lineWidth = 2;
+  g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.stroke();
+  g.fillStyle = '#181818';
+  for (const s of [-1, 1]) { g.beginPath(); g.arc(cx + s * r * .35, cy + 1, 2.2, 0, 7); g.fill(); }
+  drawHat(h, cx, cy, r, g);
+  return cv;
+}
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 function renderProgress() {
   const got = ACHIEVEMENTS.filter(a => prog.a[a.id]).length;
-  $('achTitle').textContent = `thành tích (${got}/${ACHIEVEMENTS.length}) · ${prog.w} thắng / ${prog.r} ván`;
+  $('achTitle').textContent = 'thành tích';
+  const stats = $('achStats'); stats.textContent = '';
+  const tile = (label, value, bar) => {
+    const t = el('div', 'ach-stat'); t.append(el('span', 'k', label), el('b', 'v', value));
+    if (bar !== undefined) { const m = el('span', 'bar'); m.append(el('i')); m.firstChild.style.width = bar + '%'; t.append(m); }
+    stats.append(t);
+  };
+  tile('Đã mở khóa', `${got}/${ACHIEVEMENTS.length}`, Math.round(got / ACHIEVEMENTS.length * 100));
+  tile('Thắng', prog.w);
+  tile('Ván đã chơi', prog.r);
+  tile('Tỉ lệ thắng', prog.r ? Math.round(prog.w / prog.r * 100) + '%' : '–');
   const ul = $('achList'); ul.textContent = '';
-  for (const a of ACHIEVEMENTS) {
-    const li = document.createElement('li');
-    li.className = prog.a[a.id] ? 'on' : '';
-    const n = document.createElement('b'); n.textContent = (prog.a[a.id] ? '✓ ' : '○ ') + a.name;
-    const d = document.createElement('span'); d.textContent = a.desc + ' · ' + HATS[a.hat];
-    li.append(n, d); ul.appendChild(li);
+  // unlocked first (newest on top), then locked in list order
+  const list = [...ACHIEVEMENTS].sort((a, b) => (prog.a[b.id] || 0) - (prog.a[a.id] || 0));
+  for (const a of list) {
+    const on = !!prog.a[a.id];
+    const li = el('li', on ? 'on' : '');
+    const info = el('div', 'ach-info');
+    info.append(el('b', '', a.name), el('span', 'ach-desc', a.desc));
+    if (!on && a.goal) {
+      const [cur, max] = a.goal(), m = el('span', 'bar');
+      m.append(el('i')); m.firstChild.style.width = Math.min(100, cur / max * 100) + '%';
+      info.append(el('span', 'ach-goal', `${Math.min(cur, max)}/${max}`), m);
+    }
+    const meta = el('span', 'ach-meta');
+    meta.append(el('span', '', 'Thưởng: ' + HATS[a.hat]), el('span', on ? 'ach-date' : 'ach-lock', on ? '✓ ' + new Date(prog.a[a.id]).toLocaleDateString('vi-VN') : 'chưa mở'));
+    info.append(meta);
+    li.append(hatPreview(a.hat), info);
+    ul.appendChild(li);
   }
   const box = $('hats'); box.textContent = '';
   const opts = [''].concat(Object.keys(HATS).filter(hatUnlocked));
@@ -73,44 +109,44 @@ function renderProgress() {
 }
 
 // hats are small canvas drawings on top of the player's head (cx, cy = centre, r = body radius)
-function drawHat(h, cx, cy, r) {
+function drawHat(h, cx, cy, r, g = ctx) {
   const top = cy - r;
-  ctx.save();
-  ctx.lineWidth = Math.max(1, r * .12); ctx.strokeStyle = '#181818';
-  const poly = (pts, fill) => { ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.stroke(); };
+  g.save();
+  g.lineWidth = Math.max(1, r * .12); g.strokeStyle = '#181818';
+  const poly = (pts, fill) => { g.beginPath(); pts.forEach(([x, y], k) => (k ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fillStyle = fill; g.fill(); g.stroke(); };
   if (h === 'cap') {
-    ctx.fillStyle = '#454545'; ctx.beginPath(); ctx.arc(cx, top + r * .38, r * .7, Math.PI, 0); ctx.fill(); ctx.stroke();
-    ctx.fillRect(cx, top + r * .3, r * .95, r * .16); ctx.strokeRect(cx, top + r * .3, r * .95, r * .16);
+    g.fillStyle = '#454545'; g.beginPath(); g.arc(cx, top + r * .38, r * .7, Math.PI, 0); g.fill(); g.stroke();
+    g.fillRect(cx, top + r * .3, r * .95, r * .16); g.strokeRect(cx, top + r * .3, r * .95, r * .16);
   } else if (h === 'beanie') {
-    ctx.fillStyle = '#c77f8c'; ctx.beginPath(); ctx.arc(cx, top + r * .4, r * .66, Math.PI, 0); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#e0c1c6'; ctx.beginPath(); ctx.arc(cx, top - r * .3, r * .18, 0, 7); ctx.fill(); ctx.stroke();
+    g.fillStyle = '#c77f8c'; g.beginPath(); g.arc(cx, top + r * .4, r * .66, Math.PI, 0); g.fill(); g.stroke();
+    g.fillStyle = '#e0c1c6'; g.beginPath(); g.arc(cx, top - r * .3, r * .18, 0, 7); g.fill(); g.stroke();
   } else if (h === 'crown') {
     poly([[cx - r * .6, top + r * .3], [cx - r * .6, top - r * .35], [cx - r * .3, top - r * .05], [cx, top - r * .45], [cx + r * .3, top - r * .05], [cx + r * .6, top - r * .35], [cx + r * .6, top + r * .3]], '#c9b27a');
   } else if (h === 'horns') {
     poly([[cx - r * .55, top + r * .3], [cx - r * .75, top - r * .45], [cx - r * .2, top + r * .15]], '#a3606c');
     poly([[cx + r * .55, top + r * .3], [cx + r * .75, top - r * .45], [cx + r * .2, top + r * .15]], '#a3606c');
   } else if (h === 'halo') {
-    ctx.strokeStyle = '#c9b27a'; ctx.lineWidth = Math.max(1.5, r * .16);
-    ctx.beginPath(); ctx.ellipse(cx, top - r * .3, r * .55, r * .18, 0, 0, 7); ctx.stroke();
+    g.strokeStyle = '#c9b27a'; g.lineWidth = Math.max(1.5, r * .16);
+    g.beginPath(); g.ellipse(cx, top - r * .3, r * .55, r * .18, 0, 0, 7); g.stroke();
   } else if (h === 'bow') {
     poly([[cx, top + r * .1], [cx - r * .6, top - r * .25], [cx - r * .6, top + r * .45]], '#b98fb0');
     poly([[cx, top + r * .1], [cx + r * .6, top - r * .25], [cx + r * .6, top + r * .45]], '#b98fb0');
-    ctx.fillStyle = '#9d8fbf'; ctx.beginPath(); ctx.arc(cx, top + r * .1, r * .16, 0, 7); ctx.fill(); ctx.stroke();
+    g.fillStyle = '#9d8fbf'; g.beginPath(); g.arc(cx, top + r * .1, r * .16, 0, 7); g.fill(); g.stroke();
   } else if (h === 'headphones') {
-    ctx.strokeStyle = '#3c3c3c'; ctx.lineWidth = Math.max(1.5, r * .16);
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.02, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
-    ctx.fillStyle = '#5a5a5a'; ctx.lineWidth = Math.max(1, r * .1); ctx.strokeStyle = '#181818';
-    for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(cx + s * r * .95, cy - r * .1, r * .2, r * .32, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+    g.strokeStyle = '#3c3c3c'; g.lineWidth = Math.max(1.5, r * .16);
+    g.beginPath(); g.arc(cx, cy, r * 1.02, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
+    g.fillStyle = '#5a5a5a'; g.lineWidth = Math.max(1, r * .1); g.strokeStyle = '#181818';
+    for (const s of [-1, 1]) { g.beginPath(); g.ellipse(cx + s * r * .95, cy - r * .1, r * .2, r * .32, 0, 0, 7); g.fill(); g.stroke(); }
   } else if (h === 'antenna') {
-    ctx.strokeStyle = '#9d9d9d'; ctx.lineWidth = Math.max(1, r * .1);
-    ctx.beginPath(); ctx.moveTo(cx, top + r * .1); ctx.lineTo(cx + r * .2, top - r * .6); ctx.stroke();
-    ctx.fillStyle = '#c77f8c'; ctx.strokeStyle = '#181818'; ctx.beginPath(); ctx.arc(cx + r * .2, top - r * .65, r * .17, 0, 7); ctx.fill(); ctx.stroke();
+    g.strokeStyle = '#9d9d9d'; g.lineWidth = Math.max(1, r * .1);
+    g.beginPath(); g.moveTo(cx, top + r * .1); g.lineTo(cx + r * .2, top - r * .6); g.stroke();
+    g.fillStyle = '#c77f8c'; g.strokeStyle = '#181818'; g.beginPath(); g.arc(cx + r * .2, top - r * .65, r * .17, 0, 7); g.fill(); g.stroke();
   } else if (h === 'nurse') {
     poly([[cx - r * .55, top + r * .3], [cx - r * .45, top - r * .2], [cx + r * .45, top - r * .2], [cx + r * .55, top + r * .3]], '#e6e6e6');
-    ctx.fillStyle = '#c77f8c';
-    ctx.fillRect(cx - r * .07, top - r * .1, r * .14, r * .34); ctx.fillRect(cx - r * .17, top + r * .0, r * .34, r * .14);
+    g.fillStyle = '#c77f8c';
+    g.fillRect(cx - r * .07, top - r * .1, r * .14, r * .34); g.fillRect(cx - r * .17, top + r * .0, r * .34, r * .14);
   }
-  ctx.restore();
+  g.restore();
 }
 
 renderProgress();

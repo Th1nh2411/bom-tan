@@ -39,13 +39,13 @@ const RECONNECT_MS = 5000, missingSince = new Map();
 // when the host leaves, the remaining player with the smallest peer id takes over after a short grace period
 // (the server refuses a second host, so two players racing for it is harmless)
 function maybeTakeOverHost() {
-  if (hosting || mode !== 'online' || !room || !connected || kickedOut || !hostLeftAt || findHost()) return;
+  if (hosting || mode !== 'online' || !isLoggedIn() || !room || !connected || kickedOut || !hostLeftAt || findHost()) return;
   if (Date.now() - hostLeftAt < 1500) return;
   const next = peers().map(p => p.peer).sort()[0];
   if (next === myPeer) { hostLeftAt = 0; startHosting(); toast('Bạn là chủ phòng mới', 'Chủ phòng cũ đã rời đi.'); }
 }
 function startHosting() {
-  if (!room || !connected) return;
+  if (!room || !connected || !isLoggedIn()) return;
   hosting = true; hostGame = null; scores = {}; pred = null; hostPz = false; pzSeen.clear(); gbSeen.clear(); kicked.clear();
   mode = 'online';
   publishHost(true);
@@ -82,7 +82,7 @@ function hostStartRound() {
     slots = [];
     for (let k = 0; k < Math.max(t0.length, t1.length); k++) { if (t0[k]) slots.push(t0[k]); if (t1[k]) slots.push(t1[k]); }
   }
-  hostGame = newGame(slots, hostMode === 't', { mode: hostMode, rule: hostDaily ? dailyRuleFor(todayVN()) : '' });
+  hostGame = newGame(slots, hostMode === 't', { mode: hostMode });
 }
 const clampDir = v => (v === 1 || v === -1) ? v : 0;
 function hostInputs() {
@@ -118,7 +118,6 @@ function lobbySnap() {
   return {
     rid: 0, md: hostMode, ph: 'lobby', tm: 0, g: emptyGrid, bm: [], fl: [], gw: W, gh: H,
     pl: js.map(p => { const t = p.sameTab ? myTeam : p.presence.t; return [p.peer, -100, -100, 1, (p.presence.c | 0) & 7, peerName(p), 2, scores[p.peer] || 0, (t === 0 || t === 1) ? t : -1, 0, 0, 0, 0, 0, 0, 0, 0, HATS[p.presence.hat] ? p.presence.hat : '']; }),
-    ru: hostDaily ? dailyRuleFor(todayVN()) : '',
     w: ''
   };
 }

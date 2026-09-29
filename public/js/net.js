@@ -14,7 +14,6 @@ function resolveProfiles(ids) {
 let mode = 'online';          // 'online' | 'local'
 let hosting = false;
 let hostMode = 's';   // 's' solo, 't' teams, 'z' zombie
-let hostDaily = true;  // apply today's rule to new rounds
 let hostGame = null;
 let scores = {};
 let snap = null, lastSnapObj = null, lastSnapGrid = null;
@@ -169,7 +168,7 @@ function initNet() {
   room.onAuth(onAuthResult);
   room.onMyBy(by => { myUid = by; if (authInfo && authInfo.by !== by && by.startsWith('g_')) saveAuth({ ...authInfo, by }); renderLeaderboard(); });
   $('stRoom').textContent = 'phòng #' + ROOM_ID;
-  $('lbCard').hidden = false;
+  $('roomBadge').textContent = '#' + ROOM_ID;
   renderLeaderboard();
   room.onLeaderboard(rows => {
     const next = {};

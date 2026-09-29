@@ -12,7 +12,7 @@ COLORS.forEach((c, k) => {
   const b = document.createElement('button');
   b.className = 'sw'; b.style.background = c; b.setAttribute('aria-label', 'Màu ' + (k + 1));
   b.setAttribute('aria-pressed', k === myColor ? 'true' : 'false');
-  b.onclick = () => { myColor = k; store('bt-color', String(k)); [...swWrap.children].forEach((x, j) => x.setAttribute('aria-pressed', j === k ? 'true' : 'false')); pushMe(); };
+  b.onclick = () => { myColor = k; store('bt-color', String(k)); [...swWrap.children].forEach((x, j) => x.setAttribute('aria-pressed', j === k ? 'true' : 'false')); pushMe(); renderProgress(); };
   swWrap.appendChild(b);
 });
 $('name').addEventListener('input', () => { myName = cleanName($('name').value) || 'Ẩn danh'; store('bt-name', myName); pushMe(); });
@@ -27,7 +27,7 @@ const emShow = new Map();   // player/peer id -> {k, until}
 const emSeen = new Map();   // peer -> last seq
 EMOTES.forEach((e, k) => {
   const b = document.createElement('button');
-  b.textContent = e; b.setAttribute('aria-label', 'Thả ' + e + ' (phím ' + (k + 1) + ')');
+  b.textContent = e; b.dataset.k = k + 1; b.setAttribute('aria-label', 'Thả ' + e + ' (phím ' + (k + 1) + ')');
   b.onclick = () => sendEmote(k);
   $('emotes').appendChild(b);
 });
@@ -51,7 +51,7 @@ const KEYS_A = { KeyW: [0,-1], KeyS: [0,1], KeyA: [-1,0], KeyD: [1,0] };
 const KEYS_B = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0] };
 
 addEventListener('keydown', e => {
-  if (typeof isLoggedIn === 'function' && !isLoggedIn()) return;
+  if (mode !== 'local' && typeof isLoggedIn === 'function' && !isLoggedIn()) return;   // 2 players on 1 machine need no sign-in
   if (!authed) return;
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const local = mode === 'local';

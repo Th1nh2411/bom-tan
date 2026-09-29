@@ -13,127 +13,71 @@
   <h1>bom_tan.js — workspace</h1>
   <button id="muteBtn" aria-label="Tắt âm thanh">🔊</button>
 </div>
-<div class="tabbar"><div class="tab">bom_tan.js<span class="tk-cm" id="tabNote"></span></div></div>
+<div class="tabbar" role="tablist">
+  <button class="tab active" data-view="game" role="tab" aria-selected="true">bom_tan.js<span class="tk-cm" id="tabNote"></span></button>
+  <button class="tab" data-view="tab-ach" hidden role="tab" aria-selected="false">Thành tích</button>
+  <button class="tab" data-view="tab-lb" role="tab" aria-selected="false">Bảng xếp hạng</button>
+  <button class="tab" data-view="tab-help" role="tab" aria-selected="false">Hướng dẫn</button>
+</div>
 
 
 <main class="layout">
+  <div class="login-gate" id="loginGate">
+    <div class="gate-icon">🔐</div>
+    <div class="gate-title">Đăng nhập</div>
+    <div class="gate-sub">Đăng nhập bằng Google để tham gia chơi và lưu thành tích.</div>
+    <div id="gateGsiBtn"></div>
+    <div class="gate-sub">hoặc</div>
+    <button class="b gate-local" id="gateLocalBtn">Chơi 2 người trên 1 máy</button>
+    <button class="b gate-local" id="gateExitBtn">Thoát chế độ 1 máy</button>
+  </div>
   <aside class="side" id="side">
-    <section class="sec">
-      <h2>bạn</h2>
-      <div class="auth" id="authBox" hidden>
-        <div id="gsiBtn"></div>
-        <div class="who" id="authWho" hidden><span id="authEmail"></span><button class="linkbtn" id="signOutBtn">Đăng xuất</button></div>
-        <p class="authHint" id="authHint">Đăng nhập để giữ điểm bảng xếp hạng khi đổi máy.</p>
+    <div class="side-title">bảng điều khiển</div>
+    <details class="sec" open>
+      <summary>bạn</summary>
+      <div class="me">
+        <span class="avatar" id="meAvatar" aria-hidden="true"></span>
+        <div class="me-info"><b id="meName"></b><span id="authEmail"></span></div>
+        <div class="who" id="authWho" hidden><button class="linkbtn" id="signOutBtn">Đăng xuất</button></div>
       </div>
       <label class="f" for="name"><span class="tk-kw">let</span>tênTrongGame =</label>
       <input type="text" id="name" maxlength="12" autocomplete="off">
       <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
       <div id="hatsWrap" hidden><label class="f">Mũ</label><div class="hats" id="hats" role="group" aria-label="Mũ"></div></div>
       <label class="chk"><input type="checkbox" id="joinChk" checked> Tham gia ván tới</label>
-    </section>
-    <section class="sec" id="teamCard" hidden>
-      <h2>chọn đội</h2>
+    </details>
+    <details class="sec" id="teamCard" open hidden>
+      <summary>chọn đội</summary>
       <div class="teams">
         <button id="team0" style="background:var(--red)" aria-pressed="false">Đội Đỏ</button>
         <button id="team1" style="background:var(--blue)" aria-pressed="false">Đội Xanh</button>
       </div>
-    </section>
-    <section class="sec btns">
-      <h2>điều khiển phòng</h2>
-      <button class="b host" id="hostBtn" hidden>Làm chủ phòng</button>
-      <button class="b" id="modeBtn" hidden>Chế độ: Solo</button>
-      <button class="b" id="ruleBtn" hidden>Luật hôm nay: Bật</button>
-      <button class="b run" id="startBtn" hidden>▶ Bắt đầu ván</button>
-      <button class="b" id="lobbyBtn" hidden>■ Dừng, về sảnh</button>
-      <button class="b" id="inviteBtn">Sao chép link mời</button>
-      <button class="b" id="localBtn">Chơi 2 người trên 1 máy</button>
-    </section>
-    <section class="sec">
-      <h2>biểu cảm</h2>
+    </details>
+    <details class="sec" open>
+      <summary>phòng <span class="badge" id="roomBadge"></span></summary>
+      <div class="btns">
+        <button class="b primary" id="hostBtn" hidden><i>▶</i>Làm chủ phòng</button>
+        <div class="seg" id="modeSeg" role="radiogroup" aria-label="Chế độ chơi" hidden>
+          <button data-m="s" role="radio">Solo</button><button data-m="t" role="radio">Đội</button><button data-m="z" role="radio">Zombie</button>
+        </div>
+        <button class="b primary" id="startBtn" hidden><i>▶</i>Bắt đầu ván</button>
+        <button class="b" id="lobbyBtn" hidden><i>■</i>Dừng, về sảnh</button>
+        <button class="b" id="inviteBtn"><i>⧉</i><span>Sao chép link mời</span></button>
+        <button class="b" id="localBtn"><i>⇆</i><span>Chơi 2 người trên 1 máy</span></button>
+      </div>
+    </details>
+    <details class="sec" open>
+      <summary>biểu cảm</summary>
       <div class="emotes" id="emotes"></div>
-    </section>
-    <section class="sec">
-      <h2>người chơi</h2>
+    </details>
+    <details class="sec" open>
+      <summary>người chơi <span class="badge" id="pcount"></span></summary>
       <ol class="list" id="plist"></ol>
-    </section>
-    <section class="sec info-sec">
-      <div class="info-tabs" role="tablist">
-        <button class="info-tab active" data-tab="tab-ach" role="tab" aria-selected="true">Thành tích</button>
-        <button class="info-tab" data-tab="tab-lb" role="tab" aria-selected="false">Bảng xếp hạng</button>
-        <button class="info-tab" data-tab="tab-help" role="tab" aria-selected="false">Hướng dẫn</button>
-      </div>
-      <div class="info-panels">
-        <div class="info-panel active" id="tab-ach" role="tabpanel">
-          <h2 id="achTitle">thành tích</h2>
-          <ul class="ach" id="achList"></ul>
-        </div>
-        <div class="info-panel" id="tab-lb" role="tabpanel">
-          <h2>bảng xếp hạng</h2>
-          <div id="lbBody"></div>
-        </div>
-        <div class="info-panel help" id="tab-help" role="tabpanel">
-          <h2>hướng dẫn</h2>
-          <h3>Điều khiển</h3>
-          <ul>
-            <li>Di chuyển: <kbd>WASD</kbd> hoặc <kbd>mũi tên</kbd></li>
-            <li>Đi tới ô: <kbd>chuột phải</kbd></li>
-            <li>Đặt bom: <kbd>Space</kbd></li>
-            <li>Biểu cảm: <kbd>1</kbd>–<kbd>6</kbd></li>
-            <li>Tạm dừng cả phòng, che bằng màn hình code: <kbd>Esc</kbd></li>
-            <li>Chơi tiếp: <kbd>`</kbd> (phím cạnh số 1)</li>
-            <li>Chủ phòng: bấm <kbd>kick</kbd> cạnh tên để mời người chơi ra khỏi phòng</li>
-            <li>Chế độ 1 máy, người 2: <kbd>mũi tên</kbd> + <kbd>Enter</kbd></li>
-          </ul>
-          <h3>Vật phẩm</h3>
-          <ul>
-            <li><span class="ico">💣</span> thêm 1 quả bom</li>
-            <li><span class="ico">🔥</span> nổ xa hơn</li>
-            <li><span class="ico">👟</span> chạy nhanh hơn</li>
-            <li><span class="ico">🧤</span> đi vào bom để đá nó</li>
-            <li><span class="ico">💀</span> vật phẩm xấu: bị nguyền 10 giây (đảo phím, chạy chậm hoặc tự thả bom), chạm vào ai thì lây sang người đó</li>
-            <li><span class="ico">🛡️</span> khiên: đỡ 1 lần trúng bom, sau đó bất tử 1 giây</li>
-            <li>Ai chết sẽ rơi lại các vật phẩm đã nhặt ở quanh chỗ chết</li>
-          </ul>
-          <h3>Cổng xoáy</h3>
-          <ul>
-            <li>Bước vào cổng để sang cổng cùng màu.</li>
-            <li>Lửa bom cũng đi xuyên qua cổng.</li>
-          </ul>
-          <h3>Vùng bo</h3>
-          <ul>
-            <li>Sau 1 phút, tường rơi dần từ ngoài vào trong.</li>
-            <li>Ô sắp bị lấp sẽ nháy viền đỏ. Đứng trúng là chết, khiên không đỡ được.</li>
-          </ul>
-          <h3>Khi đã chết</h3>
-          <ul>
-            <li>Click chuột trái lên ô trống để thả bom, 5 giây một lần.</li>
-            <li>Ô có dấu ngắm đỏ là bom sắp rơi, có 1 giây để né.</li>
-            <li>Bom của người chết hạ được ai thì người thả được tính kill.</li>
-          </ul>
-          <h3>Chế độ zombie</h3>
-          <ul>
-            <li>Một người bắt đầu là zombie. Zombie chạm vào ai, hoặc ai trúng bom, thành zombie.</li>
-            <li>Zombie không đặt bom, không nhặt đồ, chạy nhanh hơn một chút. Trúng bom thì choáng 3 giây.</li>
-            <li>Còn người sống sau 90 giây thì người sống thắng, lây hết thì zombie thắng.</li>
-          </ul>
-          <h3>Chế độ đội</h3>
-          <ul>
-            <li>Bom đồng đội không làm bạn chết.</li>
-            <li>Bị hạ gục thì nằm chờ 3 giây. Đồng đội chạy đến chạm vào là cứu sống lại.</li>
-          </ul>
-        </div>
-      </div>
-    </section>
+    </details>
   </aside>
   <div class="scrim" id="scrim"></div>
   <section class="stage">
     <div class="editor">
-      <div class="login-gate" id="loginGate">
-        <div class="gate-icon">🔐</div>
-        <div class="gate-title">Bắt buộc đăng nhập</div>
-        <div class="gate-sub">Bạn phải đăng nhập bằng Google để tham gia chơi và lưu thành tích.</div>
-        <div id="gateGsiBtn"></div>
-      </div>
       <div class="cover" id="cover" hidden>
         <div class="cover-tabs"><span class="ct on">invoice.service.ts</span><span class="pz" id="coverPz">⏸ Pause · ` để tiếp tục</span></div>
         <div class="cover-crumbs">src › invoice › invoice.service.ts › InvoiceService</div>
@@ -142,7 +86,78 @@
       <div class="gutter" id="gutter" aria-hidden="true"></div>
       <div class="board-wrap" id="wrap">
         <canvas id="cv" aria-label="Bàn chơi"></canvas>
-        <div class="overlay" id="overlay"><div class="big" id="ovBig">Bom Tấn</div><div class="small" id="ovSmall"></div><pre class="stats" id="ovStats"></pre></div>
+        <div class="overlay" id="overlay">
+          <div class="big" id="ovBig">Bom Tấn</div><div class="small" id="ovSmall"></div><pre class="stats" id="ovStats"></pre>
+          <div class="ov-start" id="ovStart" hidden></div>
+          <dl class="ov-keys" id="ovKeys" hidden>
+            <dt>Di chuyển</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd>
+            <dt>Đặt bom</dt><dd><kbd>Space</kbd></dd>
+            <dt>Biểu cảm</dt><dd><kbd>1</kbd> … <kbd>6</kbd></dd>
+            <dt>Tạm dừng</dt><dd><kbd>Esc</kbd></dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <div class="sec docs" id="docs">
+      <div class="info-panel" id="tab-ach" role="tabpanel">
+        <h2 id="achTitle">thành tích</h2>
+        <div class="ach-stats" id="achStats"></div>
+        <ul class="ach" id="achList"></ul>
+      </div>
+      <div class="info-panel" id="tab-lb" role="tabpanel">
+        <h2>bảng xếp hạng</h2>
+        <div id="lbBody"></div>
+      </div>
+      <div class="info-panel help" id="tab-help" role="tabpanel">
+        <h2>hướng dẫn</h2>
+        <h3>Điều khiển</h3>
+        <ul>
+          <li>Di chuyển: <kbd>WASD</kbd> hoặc <kbd>mũi tên</kbd></li>
+          <li>Đi tới ô: <kbd>chuột phải</kbd></li>
+          <li>Đặt bom: <kbd>Space</kbd></li>
+          <li>Biểu cảm: <kbd>1</kbd>–<kbd>6</kbd></li>
+          <li>Tạm dừng cả phòng, che bằng màn hình code: <kbd>Esc</kbd></li>
+          <li>Chơi tiếp: <kbd>`</kbd> (phím cạnh số 1)</li>
+          <li>Chủ phòng: bấm <kbd>kick</kbd> cạnh tên để mời người chơi ra khỏi phòng</li>
+          <li>Chế độ 1 máy, người 2: <kbd>mũi tên</kbd> + <kbd>Enter</kbd></li>
+        </ul>
+        <h3>Vật phẩm</h3>
+        <ul>
+          <li><span class="ico">💣</span> thêm 1 quả bom</li>
+          <li><span class="ico">🔥</span> nổ xa hơn</li>
+          <li><span class="ico">👟</span> chạy nhanh hơn</li>
+          <li><span class="ico">🧤</span> đi vào bom để đá nó</li>
+          <li><span class="ico">💀</span> vật phẩm xấu: bị nguyền 10 giây (đảo phím, chạy chậm hoặc tự thả bom), chạm vào ai thì lây sang người đó</li>
+          <li><span class="ico">🛡️</span> khiên: đỡ 1 lần trúng bom, sau đó bất tử 1 giây</li>
+          <li>Ai chết sẽ rơi lại các vật phẩm đã nhặt ở quanh chỗ chết</li>
+        </ul>
+        <h3>Cổng xoáy</h3>
+        <ul>
+          <li>Bước vào cổng để sang cổng cùng màu.</li>
+          <li>Lửa bom cũng đi xuyên qua cổng.</li>
+        </ul>
+        <h3>Vùng bo</h3>
+        <ul>
+          <li>Sau 1 phút, tường rơi dần từ ngoài vào trong.</li>
+          <li>Ô sắp bị lấp sẽ nháy viền đỏ. Đứng trúng là chết, khiên không đỡ được.</li>
+        </ul>
+        <h3>Khi đã chết</h3>
+        <ul>
+          <li>Click chuột trái lên ô trống để thả bom, 5 giây một lần.</li>
+          <li>Ô có dấu ngắm đỏ là bom sắp rơi, có 1 giây để né.</li>
+          <li>Bom của người chết hạ được ai thì người thả được tính kill.</li>
+        </ul>
+        <h3>Chế độ zombie</h3>
+        <ul>
+          <li>Một người bắt đầu là zombie. Zombie chạm vào ai, hoặc ai trúng bom, thành zombie.</li>
+          <li>Zombie không đặt bom, không nhặt đồ, chạy nhanh hơn một chút. Trúng bom thì choáng 3 giây.</li>
+          <li>Còn người sống sau 90 giây thì người sống thắng, lây hết thì zombie thắng.</li>
+        </ul>
+        <h3>Chế độ đội</h3>
+        <ul>
+          <li>Bom đồng đội không làm bạn chết.</li>
+          <li>Bị hạ gục thì nằm chờ 3 giây. Đồng đội chạy đến chạm vào là cứu sống lại.</li>
+        </ul>
       </div>
     </div>
     <div class="pad" id="pad">

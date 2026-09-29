@@ -56,6 +56,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 let T = 40, dpr = 1;
 function resize() {
   const w = $('wrap').clientWidth;
+  if (!w) return; // board hidden behind another editor tab
   dpr = Math.min(2, window.devicePixelRatio || 1);
   T = w / W;
   cv.width = Math.round(w * dpr); cv.height = Math.round(T * H * dpr);

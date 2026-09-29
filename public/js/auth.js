@@ -17,11 +17,18 @@ function saveAuth(v) {
 }
 
 function renderAuth() {
-  $('authBox').hidden = !googleClientId && !authInfo;
-  $('gsiBtn').hidden = !!authInfo;
-  $('authHint').hidden = !!authInfo;
   $('authWho').hidden = !authInfo;
-  if (authInfo) $('authEmail').textContent = authInfo.email || authInfo.name || 'Đã đăng nhập';
+  $('authEmail').textContent = authInfo ? (authInfo.email || authInfo.name || 'Đã đăng nhập') : 'khách · chưa đăng nhập';
+  // signed in: the in-game name comes from the account and is locked
+  $('name').readOnly = !!authInfo;
+  $('name').title = authInfo ? 'Tên lấy từ tài khoản đăng nhập' : '';
+  if (authInfo && authInfo.name && myName !== authInfo.name) { myName = authInfo.name; $('name').value = myName; store('bt-name', myName); if (room) pushMe(); }
+
+  document.body.classList.toggle('guest', !authInfo);
+  // achievements are for signed-in players: hide the tab, and leave it if it was open
+  const achTab = document.querySelector('.tab[data-view="tab-ach"]');
+  achTab.hidden = !authInfo;
+  if (!authInfo && achTab.classList.contains('active')) document.querySelector('.tab[data-view="game"]').click();   // signed out: the login gate covers sidebar and board
 
   const gate = $('loginGate');
   if (gate) {
@@ -55,8 +62,6 @@ function onAuthResult(m) {
   }
   saveAuth({ session: m.session, by: m.by, name: cleanName(m.name), email: String(m.email || '') });
   myUid = m.by; room.setBy(m.by);
-  // replace the auto-generated nickname with the Google first name
-  if (/^Người chơi \d+$/.test(myName) && authInfo.name) { myName = authInfo.name; $('name').value = myName; store('bt-name', myName); pushMe(); }
   renderLeaderboard();
   toast('Đã đăng nhập', authInfo.email);
 }
@@ -70,10 +75,9 @@ async function initGoogle() {
   s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
   s.onload = () => {
     google.accounts.id.initialize({ client_id: googleClientId, callback: r => room && room.auth(r.credential), ux_mode: 'popup' });
-    if ($('gsiBtn')) google.accounts.id.renderButton($('gsiBtn'), { theme: 'filled_black', size: 'medium', text: 'signin_with', shape: 'rectangular', width: 240 });
     if ($('gateGsiBtn')) {
       $('gateGsiBtn').textContent = '';
-      google.accounts.id.renderButton($('gateGsiBtn'), { theme: 'filled_black', size: 'large', text: 'signin_with', shape: 'rectangular', width: 280 });
+      google.accounts.id.renderButton($('gateGsiBtn'), { theme: 'filled_black', size: 'large', text: 'signin_with', shape: 'rectangular', width: 260 });
     }
   };
   document.head.appendChild(s);
