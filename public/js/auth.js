@@ -4,7 +4,7 @@ let authInfo = (() => {
   try { const v = JSON.parse(store('bt-auth') || 'null'); return v && typeof v.session === 'string' && typeof v.by === 'string' ? v : null; }
   catch (e) { return null; }
 })();
-let googleClientId = '';
+let googleClientId = '', configLoaded = false;
 
 function isLoggedIn() {
   return !!authInfo;
@@ -17,12 +17,13 @@ function saveAuth(v) {
 }
 
 function renderAuth() {
+  const account = authInfo && !authInfo.guest;
   $('authWho').hidden = !authInfo;
-  $('authEmail').textContent = authInfo ? (authInfo.email || authInfo.name || 'Đã đăng nhập') : 'khách · chưa đăng nhập';
-  // signed in: the in-game name comes from the account and is locked
-  $('name').readOnly = !!authInfo;
-  $('name').title = authInfo ? 'Tên lấy từ tài khoản đăng nhập' : '';
-  if (authInfo && authInfo.name && myName !== authInfo.name) { myName = authInfo.name; $('name').value = myName; store('bt-name', myName); if (room) pushMe(); }
+  $('authEmail').textContent = !authInfo ? 'khách · chưa đăng nhập' : authInfo.guest ? 'khách' : (authInfo.email || authInfo.name || 'Đã đăng nhập');
+  // signed in with Google: the in-game name comes from the account and is locked; guests keep editing theirs
+  $('name').readOnly = account;
+  $('name').title = account ? 'Tên lấy từ tài khoản đăng nhập' : '';
+  if (account && authInfo.name && myName !== authInfo.name) { myName = authInfo.name; $('name').value = myName; store('bt-name', myName); if (room) pushMe(); }
 
   document.body.classList.toggle('guest', !authInfo);
   // achievements are for signed-in players: hide the tab, and leave it if it was open
@@ -36,21 +37,24 @@ function renderAuth() {
       gate.classList.add('hide');
     } else {
       gate.classList.remove('hide');
-      if (!googleClientId && $('gateGsiBtn') && !$('gateGsiBtn').hasChildNodes()) {
-        const demoBtn = document.createElement('button');
-        demoBtn.className = 'b run';
-        demoBtn.style.padding = '8px 16px';
-        demoBtn.style.fontSize = '14px';
-        demoBtn.style.cursor = 'pointer';
-        demoBtn.textContent = '🚀 Đăng nhập trải nghiệm (Demo)';
-        demoBtn.onclick = () => {
-          saveAuth({ session: 'demo-session', by: PLAYER_KEY, name: myName || 'Người chơi', email: 'demo@bomtan.local' });
-        };
-        $('gateGsiBtn').appendChild(demoBtn);
-      }
+      // no GOOGLE_CLIENT_ID on the server: play as a guest under a typed name instead
+      const guestForm = !googleClientId && configLoaded;
+      $('gateGuest').hidden = !guestForm;
+      $('gateSub').textContent = guestForm ? 'Nhập tên để tham gia chơi.' : 'Đăng nhập bằng Google để tham gia chơi và lưu thành tích.';
+      if (guestForm && !$('gateName').value) $('gateName').value = myName;
     }
   }
 }
+
+// guests have no session: the server sees them by their device key, like before sign-in existed
+$('gateGuest').onsubmit = e => {
+  e.preventDefault();
+  const n = cleanName($('gateName').value);
+  if (!n) { $('gateName').focus(); return; }
+  myName = n; $('name').value = n; store('bt-name', n);
+  saveAuth({ session: '', by: PLAYER_KEY, name: n, email: '', guest: true });
+  if (room) pushMe();
+};
 
 // server answer to a Google token (or to a stored session that no longer checks out)
 function onAuthResult(m) {
@@ -68,7 +72,10 @@ function onAuthResult(m) {
 
 async function initGoogle() {
   renderAuth();
-  try { googleClientId = (await (await fetch('/api/config')).json()).googleClientId || ''; } catch (e) { return; }
+  try { googleClientId = (await (await fetch('/api/config')).json()).googleClientId || ''; } catch (e) {}
+  configLoaded = true;
+  // Google sign-in was switched on since this guest joined: ask them to sign in properly
+  if (googleClientId && authInfo && authInfo.guest) { authInfo = null; store('bt-auth', ''); }
   renderAuth();
   if (!googleClientId) return;
   const s = document.createElement('script');

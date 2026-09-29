@@ -55,11 +55,12 @@ function renderStart(show) {
   }
   if (guest) {
     const a = document.createElement('button');
-    a.className = 'ov-link'; a.innerHTML = '<i>→</i>Đăng nhập để chơi online';
+    a.className = 'ov-link'; a.innerHTML = googleClientId ? '<i>→</i>Đăng nhập để chơi online' : '<i>→</i>Nhập tên để chơi online';
     a.onclick = () => {
       if (matchMedia('(max-width:860px)').matches) setDrawer(true);   // phones: the sign-in lives in the drawer
       // point at the Google button (a cross-origin iframe we cannot click for the user), and try Google's own prompt
       const g = $('loginGate'); g.classList.remove('flash'); void g.offsetWidth; g.classList.add('flash');
+      if (!googleClientId) { $('gateName').focus(); return; }
       try { google.accounts.id.prompt(); } catch (e) {}
     };
     box.appendChild(a);
@@ -78,7 +79,7 @@ function updateOverlay() {
   if (kickedOut) return setOverlay('Bạn đã bị kick', 'Chủ phòng đã mời bạn ra khỏi phòng #' + ROOM_ID + '. Đổi mã phòng trên thanh địa chỉ để vào phòng khác.');
   if (roomFull) return setOverlay('Phòng đã đầy', 'Phòng #' + ROOM_ID + ' đã đủ người. Đổi mã phòng trên thanh địa chỉ để tạo phòng khác.');
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
-  if (!s && !isLoggedIn()) return setOverlay('Bom Tấn', 'Đăng nhập để chơi online, hoặc chơi 2 người trên 1 máy ngay.');
+  if (!s && !isLoggedIn()) return setOverlay('Bom Tấn', (googleClientId ? 'Đăng nhập' : 'Nhập tên') + ' để chơi online, hoặc chơi 2 người trên 1 máy ngay.');
   if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Đang chuyển chủ phòng cho người khác…' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
   if (s.ph === 'lobby') {
     const n = s.pl.length, md = (s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '');

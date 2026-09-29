@@ -103,6 +103,10 @@ body.local .login-gate #gateExitBtn{display:block}
 .login-gate .gate-sub{color:var(--soft);font-size:13px;max-width:32ch;font-family:var(--mono)}
 .login-gate .gate-sub::before{content:"// ";color:var(--muted)}
 .login-gate #gateGsiBtn{border-radius:4px;overflow:hidden}
+.login-gate .gate-guest{display:flex;flex-direction:column;gap:8px;width:220px}
+.login-gate .gate-guest[hidden]{display:none}
+.login-gate .gate-guest button{justify-content:center}
+.login-gate.flash .gate-guest{animation:gsiFlash .6s ease-in-out 3}
 .login-gate.flash #gateGsiBtn{animation:gsiFlash .6s ease-in-out 3}
 @keyframes gsiFlash{50%{box-shadow:0 0 0 3px #8fb3dc}}
 .login-gate #gateGsiBtn iframe{display:block;border:0;margin:0;color-scheme:auto}

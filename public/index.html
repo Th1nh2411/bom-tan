@@ -25,8 +25,12 @@
   <div class="login-gate" id="loginGate">
     <div class="gate-icon">🔐</div>
     <div class="gate-title">Đăng nhập</div>
-    <div class="gate-sub">Đăng nhập bằng Google để tham gia chơi và lưu thành tích.</div>
+    <div class="gate-sub" id="gateSub">Đăng nhập bằng Google để tham gia chơi và lưu thành tích.</div>
     <div id="gateGsiBtn"></div>
+    <form class="gate-guest" id="gateGuest" hidden>
+      <input type="text" id="gateName" maxlength="12" autocomplete="off" placeholder="Tên trong game" aria-label="Tên trong game">
+      <button class="b run" type="submit">Vào chơi</button>
+    </form>
     <div class="gate-sub">hoặc</div>
     <button class="b gate-local" id="gateLocalBtn">Chơi 2 người trên 1 máy</button>
     <button class="b gate-local" id="gateExitBtn">Thoát chế độ 1 máy</button>
