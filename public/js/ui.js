@@ -178,21 +178,45 @@ function renderLeaderboard() {
     return { key, u, n: profileNames.get(u) || cleanName(v && v.n) || 'Ẩn danh', w: v.w | 0, g: v.g | 0, k: v.k | 0, s: v.s | 0, r: v.r | 0 };
   }).filter(r => r.g > 0);
   resolveProfiles(rows.map(r => r.u));
-  if (!rows.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = 'Chưa có ván nào được ghi. Ván có từ 2 người trở lên sẽ được tính.'; box.appendChild(p); return; }
+  if (!rows.length) { box.appendChild(el('p', 'empty', 'Chưa có ván nào được ghi. Ván có từ 2 người trở lên sẽ được tính.')); return; }
   rows.sort((a, b) => b.w - a.w || b.k - a.k || a.g - b.g);
-  const tbl = document.createElement('table'); tbl.className = 'lb';
-  const head = document.createElement('tr');
-  ['#', 'Tên', 'Thắng', 'Ván', 'Hạ', 'Cứu'].forEach(h => { const th = document.createElement('th'); th.textContent = h; head.appendChild(th); });
-  tbl.appendChild(head);
   const mine = myUid ? safeKey(myUid) : null;
-  rows.slice(0, 10).forEach((r, k) => {
-    const tr = document.createElement('tr'); if (r.key === mine) tr.className = 'me';
-    [k + 1, r.n, r.w, r.g, r.k, r.r].forEach((v, j) => { const td = document.createElement('td'); td.textContent = v; if (j === 0) td.className = 'rk'; tr.appendChild(td); });
-    tbl.appendChild(tr);
+  const pct = r => Math.round(r.w / r.g * 100);
+  // each player gets a stable colour from their id
+  const avatar = r => {
+    const a = el('span', 'lb-av', (r.n.trim()[0] || '?').toUpperCase());
+    a.style.background = COLORS[[...r.u].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0) & 7];
+    return a;
+  };
+  // podium: the top 3 as cards
+  const pod = el('div', 'lb-podium');
+  rows.slice(0, 3).forEach((r, k) => {
+    const c = el('div', 'lb-pod p' + (k + 1) + (r.key === mine ? ' you' : ''));
+    const who = el('div', 'lb-who'); who.append(avatar(r), el('b', '', r.n));
+    c.append(el('span', 'lb-medal', '#' + (k + 1)), who, el('span', 'lb-big', r.w + ' thắng'), el('span', 'lb-sub', `${r.g} ván · ${pct(r)}% · ${r.k} hạ`));
+    pod.appendChild(c);
   });
-  box.appendChild(tbl);
+  box.appendChild(pod);
+  // table: top 10, plus my own row when I am further down
+  const wrap = el('div', 'lb-wrap'), tbl = el('table', 'lb'), head = el('tr');
+  [['#', 'rk'], ['Người chơi', 'nm'], ['Thắng'], ['Ván'], ['Tỉ lệ thắng', 'rate'], ['Hạ', 'opt'], ['Cứu', 'opt']].forEach(([t, c]) => head.appendChild(el('th', c || '', t)));
+  tbl.appendChild(head);
+  const addRow = (r, rank) => {
+    const tr = el('tr', r.key === mine ? 'you' : '');
+    const nm = el('td', 'nm'), who = el('div', 'cell'); who.append(avatar(r), el('span', 'lb-n', r.n));
+    if (r.key === mine) who.append(el('span', 'lb-tag', 'bạn'));
+    nm.append(who);
+    const rate = el('td', 'rate'), rc = el('div', 'cell'), bar = el('span', 'bar'); bar.append(el('i')); bar.firstChild.style.width = pct(r) + '%';
+    rc.append(bar, el('span', '', pct(r) + '%')); rate.append(rc);
+    tr.append(el('td', 'rk', rank), nm, el('td', 'w', r.w), el('td', '', r.g), rate, el('td', 'opt', r.k), el('td', 'opt', r.r));
+    tbl.appendChild(tr);
+  };
+  rows.slice(0, 10).forEach((r, k) => addRow(r, k + 1));
+  const myRank = rows.findIndex(r => r.key === mine);
+  if (myRank >= 10) { const gap = el('tr', 'gap'); gap.appendChild(el('td', '', '⋯')); gap.firstChild.colSpan = 7; tbl.appendChild(gap); addRow(rows[myRank], myRank + 1); }
+  wrap.appendChild(tbl); box.appendChild(wrap);
   const worst = rows.filter(r => r.s > 0).sort((a, b) => b.s - a.s)[0];
-  if (worst) { const p = document.createElement('p'); p.className = 'fun'; p.textContent = `Tự nổ nhiều nhất: ${worst.n} (${worst.s} lần)`; box.appendChild(p); }
+  if (worst) box.appendChild(el('p', 'fun', `Tự nổ nhiều nhất: ${worst.n} (${worst.s} lần)`));
 }
 
 function setNet(on, text) { $('stNet').classList.toggle('on', on); $('netText').textContent = text; }
