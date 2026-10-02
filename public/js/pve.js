@@ -86,7 +86,7 @@ function threatDist(g, x, y) {
   let d = 1e9;
   for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - x) + Math.abs(m.y - y));
   for (const s of g.spawns) d = Math.min(d, Math.abs(s.i % W - x) + Math.abs(((s.i / W) | 0) - y));
-  if (g.boss) d = Math.min(d, Math.abs(g.boss.x - x) + Math.abs(g.boss.y - y));
+  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - x) + Math.abs(g.boss.y - y) - 1));   // from the edge of its body
   return d;
 }
 // where a player comes back: a free cell out of every blast line, well away from monsters and the boss
@@ -226,7 +226,9 @@ function hurt(g, p, by) {
 
 /* ---------- bosses: they walk the board cell by cell like everyone else ----------
    (x, y) is the cell the boss stands on (moving towards (tx, ty)). Walls stop it; a box it walks into
-   breaks. Its body is that one cell: fire there hurts it, a player touching it gets hurt. */
+   breaks. Its body is round, BOSS_R cells around (x, y), 2 cells across like its drawing: fire on its
+   cell or the 4 next to it hurts it, a player whose centre comes within BOSS_R gets hurt. */
+const BOSS_R = 1;
 function spawnBoss(g, kind, hp, cell) {
   const [x, y] = cell >= 0 && g.grid[cell] !== '#' ? [cell % W, (cell / W) | 0] : bossSpot(g);
   g.boss = { k: kind, x, y, tx: x, ty: y, hp, max: hp, ph: 1, cd: 2.5, act: null, rest: 0, hitT: 0, vis: true, visT: 4 };
@@ -442,8 +444,13 @@ function stepBoss(g, dt) {
     b.vis = !b.vis; b.visT = b.vis ? 4 : 2.5;
     if (b.vis) { const i = freeCell(g, 5); if (i >= 0) { b.x = b.tx = i % W; b.y = b.ty = (i / W) | 0; } }
   }
-  const fire = b.vis && b.hitT <= 0 && g.flames.get(idx(Math.round(b.x), Math.round(b.y)));   // fire on its one cell
-  const hitter = fire && flameOwner(g, fire);   // its own fire does not hurt it
+  let hitter = null;
+  if (b.vis && b.hitT <= 0) for (const [i, f] of g.flames) {
+    // fire on its cell or a cell right next to it (not diagonal) reaches its round body
+    if (Math.hypot(i % W - b.x, ((i / W) | 0) - b.y) > BOSS_R + 0.05) continue;
+    hitter = flameOwner(g, f);   // its own fire does not hurt it
+    if (hitter) break;
+  }
   if (hitter) {
     b.hp--; b.hitT = BOSS_HIT_CD; hitter.dmg = (hitter.dmg || 0) + 1;
     if (b.hp <= 0) return bossDown(g);
@@ -452,7 +459,7 @@ function stepBoss(g, dt) {
       if (g.mode === 'b') g.sdOn = true;   // the walls start closing in
     }
   }
-  if (b.vis) for (const q of g.players) if (q.team === 0 && Math.hypot(q.x - b.x, q.y - b.y) < 0.8) hurt(g, q, '@');
+  if (b.vis) for (const q of g.players) if (q.team === 0 && Math.hypot(q.x - b.x, q.y - b.y) < BOSS_R) hurt(g, q, '@');
   if (b.act) {
     for (const w of b.act.waves) if ((w.t -= dt) <= 0) { doWave(g, b, w); w.done = true; }
     b.act.waves = b.act.waves.filter(w => !w.done);
