@@ -250,7 +250,7 @@ function sanitizeSnap(s) {
   const cells = lobby ? 0 : W * H;
   const bo = Array.isArray(s.bo) && s.bo.length >= 8 ? s.bo : null;
   return {
-    rid: s.rid | 0, md, gw: s.gw | 0, gh: s.gh | 0,
+    rid: s.rid | 0, md, gw: s.gw | 0, gh: s.gh | 0, mp: MAPS[s.mp] || s.mp === 'random' ? s.mp : 'classic',
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: lobby ? '' : s.g,
     bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),

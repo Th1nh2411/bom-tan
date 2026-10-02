@@ -18,18 +18,21 @@ const BOSS_CD = { king: 4.5, dragon: 3.5, golem: 5, wraith: 3 };   // seconds be
 const SHOP = { b: 3, f: 3, s: 2, k: 4, h: 5 };                     // survival shop prices, in coins
 const WAVE_BREAK = 8, HUNT_T = 120, MOB_HIT_CD = 0.6, BOSS_HIT_CD = 0.7, STAGE_CLEAR_T = 3, SKILL_CD = 10;
 // campaign: mob counts are for one player and grow with the party
+// boxes: share of free cells with a box. Kept low: monsters need room to come at you (and boxes hide the exit)
 const STAGES = [
-  { boxes: .55, mobs: { slime: 3 } },
-  { boxes: .55, mobs: { slime: 4, bat: 1 } },
-  { boxes: .5, mobs: { slime: 2, bat: 2, ghost: 1 } },
-  { boxes: .5, mobs: { bat: 3, ghost: 2 } },
-  { boxes: .2, boss: 'king' },
-  { boxes: .5, mobs: { imp: 2, bat: 2, slime: 2 } },
-  { boxes: .45, mobs: { tank: 2, ghost: 2, imp: 1 } },
-  { boxes: .45, mobs: { imp: 3, tank: 2, bat: 1 } },
-  { boxes: .4, mobs: { slime: 2, bat: 2, ghost: 2, imp: 2, tank: 2 } },
-  { boxes: .2, boss: 'dragon' },
+  { boxes: .3, mobs: { slime: 3 } },
+  { boxes: .3, mobs: { slime: 4, bat: 1 } },
+  { boxes: .28, mobs: { slime: 2, bat: 2, ghost: 1 } },
+  { boxes: .28, mobs: { bat: 3, ghost: 2 } },
+  { boxes: .12, boss: 'king' },
+  { boxes: .26, mobs: { imp: 2, bat: 2, slime: 2 } },
+  { boxes: .24, mobs: { tank: 2, ghost: 2, imp: 1 } },
+  { boxes: .24, mobs: { imp: 3, tank: 2, bat: 1 } },
+  { boxes: .22, mobs: { slime: 2, bat: 2, ghost: 2, imp: 2, tank: 2 } },
+  { boxes: .12, boss: 'dragon' },
 ];
+const STAGE_MAPS = ['classic', 'open', 'cross', 'rooms', 'open', 'fort', 'cross', 'rooms', 'classic', 'open'];   // boss stages get the open arena
+const WAVE_BOXES = .25;   // survival: starting box share, and the most that grows back between waves
 
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const cellOf = o => idx(Math.round(o.x), Math.round(o.y));
@@ -41,12 +44,12 @@ function setupPve(g, opts) {
   g.teams = true;
   for (const p of g.players) { p.team = 0; p.coins = 0; p.mk = 0; p.dmg = 0; }
   const n = g.players.length;
-  if (g.mode === 'v') { layBoxes(g, .45); g.wave = 0; g.brk = 1.5; }
+  if (g.mode === 'v') { layBoxes(g, WAVE_BOXES); g.wave = 0; g.brk = 1.5; }
   else if (g.mode === 'b') {
-    layBoxes(g, .2);
+    layBoxes(g, .12);
     for (const p of g.players) { p.fire = Math.max(p.fire, 3); p.maxB = Math.max(p.maxB, 2); }
     spawnBoss(g, BOSS_KINDS.includes(opts.boss) ? opts.boss : pick(BOSS_KINDS), 8 + 4 * n);
-  } else if (g.mode === 'c') { g.stage = Math.min(STAGES.length, Math.max(1, opts.stage | 0 || 1)); g.stars = 0; fillStage(g); }
+  } else if (g.mode === 'c') { g.stage = Math.min(STAGES.length, Math.max(1, opts.stage | 0 || 1)); g.stars = 0; stageBoard(g); fillStage(g); }
   else if (g.mode === 'h') setupHunt(g);
 }
 
@@ -65,7 +68,9 @@ function layBoxes(g, density) {
   }
 }
 
-// a random free floor cell at least minD steps from every living player (-1: none)
+const SAFE_D = 3;   // monsters never appear closer than this to a player, and players never come back closer than this to one
+// a random free floor cell at least minD steps from every living player (-1: none). When the board is crowded
+// minD shrinks, but never below SAFE_D: no cell is better than a monster on top of someone.
 function freeCell(g, minD) {
   const portals = new Set(PORTALS.flat()), cand = [];
   for (let i = 0; i < W * H; i++) {
@@ -74,7 +79,29 @@ function freeCell(g, minD) {
     if (g.players.every(p => !p.alive || Math.abs(p.x - x) + Math.abs(p.y - y) >= minD)) cand.push(i);
   }
   if (cand.length) return pick(cand);
-  return minD > 0 ? freeCell(g, minD - 2) : -1;
+  return minD > SAFE_D ? freeCell(g, Math.max(SAFE_D, minD - 2)) : -1;
+}
+// steps from (x, y) to the nearest monster, monster about to appear, or the boss's 2x2 body
+function threatDist(g, x, y) {
+  let d = 1e9;
+  for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - x) + Math.abs(m.y - y));
+  for (const s of g.spawns) d = Math.min(d, Math.abs(s.i % W - x) + Math.abs(((s.i / W) | 0) - y));
+  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - x) - 0.5) + Math.max(0, Math.abs(g.boss.y - y) - 0.5));
+  return d;
+}
+// where a player comes back: a free cell out of every blast line, well away from monsters and the boss
+// (any cell at least 5 steps away, or the farthest ones when the board is crowded)
+function safeCell(g) {
+  const portals = new Set(PORTALS.flat()), d = danger(g), cand = [];
+  let best = -1;
+  for (let i = 0; i < W * H; i++) {
+    if (g.grid[i] !== '.' || portals.has(i) || d.has(i) || g.bombs.some(b => b.i === i)) continue;
+    const t = threatDist(g, i % W, (i / W) | 0);
+    cand.push([i, t]);
+    best = Math.max(best, t);
+  }
+  if (!cand.length) return -1;
+  return pick(cand.filter(c => c[1] >= Math.min(5, best)))[0];
 }
 function nearestFloor(g, x, y) {
   let best = -1, bd = 1e9;
@@ -198,10 +225,30 @@ function hurt(g, p, by) {
 
 /* ---------- bosses: 2x2, centred on (x, y) half-way between cells ---------- */
 function spawnBoss(g, kind, hp, cell) {
-  const cx = cell >= 0 ? cell % W : (W >> 1), cy = cell >= 0 ? (cell / W) | 0 : (H >> 1);
-  g.boss = { k: kind, x: clampB(cx - 0.5, W), y: clampB(cy - 0.5, H), hp, max: hp, ph: 1, cd: 2.5, act: null, rest: 0, hitT: 0, vis: true, visT: 4 };
+  const [x, y] = cell >= 0 ? [clampB(cell % W - 0.5, W), clampB(((cell / W) | 0) - 0.5, H)] : bossSpot(g);
+  g.boss = { k: kind, x, y, hp, max: hp, ph: 1, cd: 2.5, act: null, rest: 0, hitT: 0, vis: true, visT: 4 };
   g.bossDead = false;
   g.banner = [BOSS_NAMES[kind] + ' xuất hiện!', 2.5];
+  // nobody starts under the boss
+  for (const p of g.players) if (p.alive && threatDist(g, p.x, p.y) < SAFE_D) { const i = safeCell(g); if (i >= 0) { p.x = i % W; p.y = (i / W) | 0; p.pass = []; p.lock = -1; } }
+}
+// where a fight starts: as close to the middle as possible while at least 5 steps from every player
+// (or the spot farthest from them on a crowded board)
+function bossSpot(g) {
+  const spots = [];
+  let best = -1;
+  for (let y = 2; y <= H - 2; y++) for (let x = 2; x <= W - 2; x++) {
+    const cx = x - 0.5, cy = y - 0.5;   // covers cells x-1..x, y-1..y
+    let d = 1e9;
+    for (const p of g.players) if (p.alive) d = Math.min(d, Math.max(0, Math.abs(p.x - cx) - 0.5) + Math.max(0, Math.abs(p.y - cy) - 0.5));
+    spots.push([cx, cy, d]);
+    best = Math.max(best, d);
+  }
+  const ok = spots.filter(s => s[2] >= Math.min(5, best));
+  const mid = s => Math.abs(s[0] - (W - 1) / 2) + Math.abs(s[1] - (H - 1) / 2);
+  const closest = Math.min(...ok.map(mid));
+  const [x, y] = pick(ok.filter(s => mid(s) <= closest + 1));
+  return [x, y];
 }
 const clampB = (v, n) => Math.min(n - 2.5, Math.max(1.5, v));
 function nearestPlayer(g, x, y, team = 1) {
@@ -324,8 +371,18 @@ function waveMobs(n, np) {
 // queued monsters appear one by one, each after a 1s warning on its cell
 function tickSpawns(g, dt) {
   for (const s of g.spawns) s.t -= dt;
-  for (const s of g.spawns.filter(s => s.t <= 0)) { if (s.boss) spawnBoss(g, s.k, s.hp, s.i); else addMob(g, s.k, s.i); }
-  g.spawns = g.spawns.filter(s => s.t > 0);
+  for (const s of g.spawns.filter(s => s.t <= 0)) {
+    if (g.players.some(p => p.alive && Math.abs(p.x - s.i % W) + Math.abs(p.y - ((s.i / W) | 0)) < SAFE_D)) {
+      // someone walked onto the warning: appear somewhere else, after a fresh warning
+      const i = freeCell(g, 5);
+      if (i >= 0) s.i = i;
+      s.t = 1;
+      continue;
+    }
+    if (s.boss) spawnBoss(g, s.k, s.hp, s.i); else addMob(g, s.k, s.i);
+    s.done = true;
+  }
+  g.spawns = g.spawns.filter(s => !s.done);
   if (g.queue.length && (g.spawnT = (g.spawnT || 0) - dt) <= 0) {
     g.spawnT = 0.5;
     if (g.queue[0].boss && g.boss) return;   // one boss at a time
@@ -338,21 +395,26 @@ function resetStats(p) { p.maxB = 1; p.fire = 2; p.spd = 0; p.kick = false; p.sh
 function respawnDead(g) {
   for (const p of g.players) {
     if (p.alive || p.down > 0) continue;
-    const i = freeCell(g, 0);
+    const i = safeCell(g);
     if (i < 0) continue;
     resetStats(p);
     p.alive = true; p.down = 0; p.dropped = false; p.inv = 2; p.pass = []; p.lock = -1;
     p.x = i % W; p.y = (i / W) | 0;
   }
 }
+// a few boxes (with power-ups) grow back between waves, never past WAVE_BOXES of the floor
 function regrowBoxes(g) {
   const portals = new Set(PORTALS.flat());
-  for (let i = 0; i < W * H; i++) {
-    if (g.grid[i] !== '.' || portals.has(i) || Math.random() > 0.12) continue;
+  let floor = 0, boxes = 0;
+  for (const c of g.grid) { if (c === 'x') boxes++; if (c !== '#') floor++; }
+  let room = Math.floor(floor * WAVE_BOXES) - boxes;
+  for (let i = 0; i < W * H && room > 0; i++) {
+    if (g.grid[i] !== '.' || portals.has(i) || Math.random() > 0.06) continue;
     const x = i % W, y = (i / W) | 0;
     if (g.players.some(p => Math.abs(p.x - x) + Math.abs(p.y - y) <= 2) || g.bombs.some(b => b.i === i)) continue;
     g.grid[i] = 'x';
     g.hidden[i] = Math.random() < 0.35 ? pick(['b', 'f', 's', 'h']) : '';
+    room--;
   }
 }
 function stepWaves(g, dt) {
@@ -413,13 +475,18 @@ function nextStage(g) {
   g.stage++;
   g.rid = Math.floor(Math.random() * 1e9);   // a new board: clients restart their prediction
   g.bombs = []; g.flames.clear(); g.burn.clear(); g.drops = [];
-  const spawns = pickSpawns(g.players.length);
-  g.players.forEach((p, k) => {
+  stageBoard(g);
+  for (const p of g.players) {
     if (!p.alive) resetStats(p);
     p.alive = true; p.down = 0; p.dropped = false; p.inv = 1.5; p.pass = []; p.lock = -1; p.lastTp = null;
-    p.x = spawns[k][0]; p.y = spawns[k][1];
-  });
+  }
   fillStage(g);
+}
+// each stage has its own map: build its walls and put everyone on a fresh spawn
+function stageBoard(g) {
+  g.map = buildWalls(g.grid, STAGE_MAPS[g.stage - 1]);
+  const spawns = pickSpawns(g.players.length, i => g.grid[i] === '.');
+  g.players.forEach((p, k) => { p.x = spawns[k][0]; p.y = spawns[k][1]; });
 }
 
 /* ---------- boss hunt: one player is the boss ---------- */
@@ -428,7 +495,7 @@ function setupHunt(g) {
   boss.boss = true; boss.team = 1; boss.hp = 2 + 2 * n;
   boss.maxB = 3; boss.fire = 4; boss.spd = 1; boss.kick = true; boss.skT = 3;
   for (const p of g.players) if (p !== boss) { p.fire = 3; p.maxB = 2; }
-  layBoxes(g, .55);
+  layBoxes(g, .4);
   g.banner = [boss.name + ' là BOSS!', 3];
 }
 // the boss player's skill key (E): call in slimes that fight on their side

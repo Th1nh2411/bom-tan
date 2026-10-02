@@ -75,7 +75,7 @@ function predictStep(dt) {
 
 /* ---------- local mode ---------- */
 function localSlots() { return [{ id: 'p1', name: 'P1 (WASD)', color: 0 }, { id: 'p2', name: 'P2 (Mũi tên)', color: 1 }]; }
-function startLocal() { mode = 'local'; scores = {}; pred = null; practice = null; localGame = newGame(localSlots(), false); snap = null; updateUI(); }
+function startLocal() { mode = 'local'; scores = {}; pred = null; practice = null; localGame = newGame(localSlots(), false, { map: 'random' }); snap = null; updateUI(); }
 function stopLocal() {
   mode = 'online'; localGame = null; snap = null;
   if (net && net.ph !== 'lobby') { setDims(net.gw, net.gh); setSnap(net); } else startPractice();
@@ -85,7 +85,7 @@ function stopLocal() {
 /* ---------- practice field: outside rooms and between rounds you walk and bomb on your own board ---------- */
 let practiceDeadT = 0;
 function startPractice() {
-  practice = newGame([{ id: myPeer || 'me', name: myName, color: myColor, hat: myHat }], false, { mode: 'p' });
+  practice = newGame([{ id: myPeer || 'me', name: myName, color: myColor, hat: myHat }], false, { mode: 'p', map: 'random' });
   practice.ph = 'play'; practiceDeadT = 0; pred = null;
 }
 function stepPractice(dt) {

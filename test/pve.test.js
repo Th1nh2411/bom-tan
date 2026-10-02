@@ -146,3 +146,82 @@ test('boss hunt: the boss player has several lives, summons slimes, and loses wh
   step(e, g, 0.05);
   assert.equal(g.winner, 'hunters');
 });
+
+const near = (e, g, p) => {
+  let d = 1e9;
+  for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - p.x) + Math.abs(m.y - p.y));
+  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - p.x) - .5) + Math.max(0, Math.abs(g.boss.y - p.y) - .5));
+  return d;
+};
+
+test('nobody starts on top of a monster or a boss', () => {
+  const e = loadEngine();
+  for (let k = 0; k < 60; k++) {
+    const n = 1 + (k % 4);
+    const b = e.newGame(slots(n), false, { mode: 'b' });
+    for (const p of b.players) assert.ok(near(e, b, p) >= 3, `boss fight: ${n} players, boss ${near(e, b, p)} steps away`);
+    const c = e.newGame(slots(n), false, { mode: 'c', stage: 1 + (k % 10) });
+    for (const p of c.players) assert.ok(near(e, c, p) >= 3, `campaign stage ${c.stage}: a monster ${near(e, c, p)} steps away`);
+  }
+});
+
+test('players come back away from monsters, and monsters do not appear on a player', () => {
+  const e = loadEngine();
+  for (let k = 0; k < 30; k++) {
+    const g = coop(e, 'v', 2);
+    g.brk = 99;
+    // monsters everywhere on the left half
+    for (let y = 1; y < e.H - 1; y += 2) for (let x = 1; x < e.W / 2; x += 2) { e.addMob(g, 'slime', e.idx(x, y)); g.mobs[g.mobs.length - 1].wait = 99; }
+    const [a, b] = g.players;
+    a.alive = false; a.down = 0;
+    b.x = e.W - 2; b.y = e.H - 2; b.inv = 99;
+    e.respawnDead(g);
+    assert.ok(a.alive);
+    assert.ok(near(e, g, a) >= 3, `came back ${near(e, g, a)} steps from a monster`);
+  }
+  // a player standing on a spawn warning when it runs out: the monster appears elsewhere
+  const g = coop(e, 'v', 1);
+  g.brk = 99;
+  const p = g.players[0];
+  p.inv = 99;
+  g.spawns = [{ k: 'slime', i: e.idx(Math.round(p.x), Math.round(p.y)), t: 0.01 }];
+  step(e, g, 0.05);
+  assert.ok(g.mobs.every(m => Math.abs(m.x - p.x) + Math.abs(m.y - p.y) >= 3));
+  step(e, g, 1.2);
+  assert.equal(g.mobs.length, 1);
+  assert.ok(near(e, g, p) >= 3);
+});
+
+test('monster boards stay open: few boxes, and they do not pile up between waves', () => {
+  const e = loadEngine();
+  const share = g => g.grid.filter(c => c === 'x').length / g.grid.filter(c => c !== '#').length;
+  for (let k = 1; k <= 10; k++) assert.ok(share(e.newGame(slots(2), false, { mode: 'c', stage: k })) <= 0.35, 'stage ' + k);
+  const g = coop(e, 'v', 1);
+  g.players[0].inv = 1e9;
+  for (let w = 0; w < 30; w++) {   // 30 breaks in a row
+    g.queue = []; g.spawns = []; g.mobs = []; g.brk = 0;
+    step(e, g, 0.02);
+  }
+  assert.ok(share(g) <= 0.27, 'box share after 30 waves: ' + share(g).toFixed(2));
+});
+
+test('every map keeps the board in one piece, the portals open and room to spawn', () => {
+  const e = loadEngine();
+  for (const map of ['classic', 'open', 'cross', 'rooms', 'fort']) for (const n of [1, 3, 5, 8]) {
+    const g = e.newGame(slots(n), false, { map });
+    assert.equal(g.map, map);
+    const open = i => g.grid[i] !== '#';
+    for (const c of e.PORTALS.flat()) assert.ok(open(c), `${map}: portal on a wall`);
+    for (const p of g.players) assert.ok(open(e.idx(p.x, p.y)), `${map}: spawn on a wall`);
+    // flood fill from the first player over everything that is not a wall (boxes can be blown up)
+    const start = e.idx(g.players[0].x, g.players[0].y), seen = new Set([start]), q = [start];
+    for (let h = 0; h < q.length; h++) for (const d of [1, -1, e.W, -e.W]) { const nb = q[h] + d; if (open(nb) && !seen.has(nb)) { seen.add(nb); q.push(nb); } }
+    assert.equal(seen.size, g.grid.filter(c => c !== '#').length, `${map} with ${n} players: cut in pieces`);
+  }
+  const r = e.newGame(slots(2), false, { map: 'random' });
+  assert.ok(['classic', 'open', 'cross', 'rooms', 'fort'].includes(r.map));
+  assert.equal(e.newGame(slots(2), false).map, 'classic', 'no map asked: the classic board');
+  // campaign stages use their own maps
+  const c = e.newGame(slots(2), false, { mode: 'c', stage: 4 });
+  assert.equal(c.map, 'rooms');
+});

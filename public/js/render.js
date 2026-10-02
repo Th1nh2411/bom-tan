@@ -6,7 +6,7 @@ function simulate(now) {
   if (mode === 'local' && localGame) {
     const li = { p1: ctlDir(ctlA), p2: ctlDir(ctlB) };
     if (localGame.pz) holdInputs(localGame, li); else stepGame(localGame, li, dt, scores);
-    if (localGame.ph === 'end' && localGame.timer <= 0) localGame = newGame(localSlots(), false);
+    if (localGame.ph === 'end' && localGame.timer <= 0) localGame = newGame(localSlots(), false, { map: 'random' });
     setSnap(sanitizeSnap(snapshot(localGame, scores)));
   } else {
     if (mode === 'online' && !practice && (!ROOM_ID || !net || net.ph === 'lobby')) startPractice();

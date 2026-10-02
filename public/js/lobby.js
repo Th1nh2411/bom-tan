@@ -12,8 +12,10 @@ const MODE_INFO = {
   c: ['Đi ải', '10 ải, ải 5 và 10 có boss. Diệt hết quái rồi tìm cửa ra giấu dưới thùng.'],
   p: ['Sân tập', ''],
 };
-const MODE_GROUPS = [['Đối kháng', ['s', 't', 'z', 'h']], ['Hợp tác', ['v', 'b', 'c']]];
-let roomKey = '', rosterKey = '', roomsKey = '', copiedUntil = 0;
+const MODE_GROUPS = [['Đối kháng', ['s', 't', 'z', 'h']], ['Hợp tác · đánh quái', ['v', 'b', 'c']]];
+const MAP_NAMES = { random: 'Ngẫu nhiên', classic: 'Cổ điển', open: 'Đấu trường', cross: 'Ngã tư', rooms: 'Bốn phòng', fort: 'Pháo đài' };
+const MODE_ICONS = { s: '⚔️', t: '🤝', z: '🧟', h: '👑', v: '🌊', b: '🐉', c: '🗺️', p: '🎯' };
+let roomKey = '', rosterKey = '', roomsKey = '', copiedUntil = 0, modeOpen = false;
 let publicRooms = [];   // GET /api/rooms, refreshed every few seconds
 
 function el2(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -26,8 +28,8 @@ const pingOf = id => id === myPeer ? myRtt : (peers().find(p => p.peer === id) |
 function renderRoomPanel() {
   const body = $('roomBody');
   const copied = performance.now() < copiedUntil;
-  const key = JSON.stringify([ROOM_ID, mode, connected, kickedOut, roomFull, isLoggedIn(), myPeer, joined, copied,
-    net && [net.ph, net.md, net.ow, net.sa, net.pb, net.cs, net.cu, net.rd, net.pl.map(p => p.id)]]);
+  const key = JSON.stringify([ROOM_ID, mode, connected, kickedOut, roomFull, isLoggedIn(), myPeer, joined, copied, modeOpen,
+    net && [net.ph, net.md, net.mp, net.ow, net.sa, net.pb, net.cs, net.cu, net.rd, net.pl.map(p => p.id)]]);
   if (key === roomKey) return;
   roomKey = key;
   const typing = body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'text' ? document.activeElement.value : null;
@@ -44,9 +46,9 @@ function renderRoomPanel() {
     if (kickedOut) sub = 'Bạn đã bị mời ra khỏi phòng #' + ROOM_ID + '. Chọn phòng khác nhé.';
     if (roomFull) sub = 'Phòng #' + ROOM_ID + ' đã đầy. Chọn phòng khác nhé.';
     body.append(el2('p', 'lob-sub', sub));
-    body.append(btn('lob-cta', '⚡  Chơi nhanh', 'quick', 'Vào phòng công khai đông nhất còn chỗ'));
     const row = el2('div', 'lob-row');
-    row.append(btn('lob-btn', '＋ Tạo phòng', 'create'), btn('lob-btn', '＋ Tạo phòng công khai', 'create:pub'));
+    row.append(btn('lob-cta', '⚡ Chơi nhanh', 'quick', 'Vào phòng công khai đông nhất còn chỗ'),
+      btn('lob-btn', '＋ Tạo phòng', 'create', 'Phòng mới, công khai. Vào phòng rồi có thể chuyển sang riêng tư'));
     body.append(row);
     const f = el2('form', 'lob-join'); f.dataset.act = 'code';
     const inp = el2('input'); inp.type = 'text'; inp.maxLength = 24; inp.autocomplete = 'off'; inp.placeholder = 'Mã phòng, vd: abc12'; inp.setAttribute('aria-label', 'Mã phòng');
@@ -60,7 +62,7 @@ function renderRoomPanel() {
 
   const md = net ? net.md : 's', owner = isOwner();
   const chips = el2('div', 'lob-chips');
-  chips.append(el2('span', 'lob-mode m-' + md, MODE_INFO[md][0]));
+  if (inRound()) chips.append(el2('span', 'lob-mode m-' + md, MODE_ICONS[md] + ' ' + MODE_INFO[md][0]));   // the lobby shows the full mode row instead
   if (net && net.pb) chips.append(el2('span', 'lob-pub', 'công khai'));
   if (owner) chips.append(el2('span', 'lob-own-chip', '★ bạn là chủ phòng'));
   body.append(chips);
@@ -81,20 +83,25 @@ function renderRoomPanel() {
     else sub = `Đợi những người còn lại sẵn sàng (${nReady}/${net.pl.length}).`;
     body.append(el2('p', 'lob-sub' + (net.sa > 0 ? ' go' : ''), sub));
 
-    // mode: the owner picks, everyone sees what it means
-    for (const [title, list] of MODE_GROUPS) {
-      body.append(el2('div', 'lob-group', title));
-      const modes = el2('div', 'lob-modes' + (owner ? '' : ' ro'));
-      modes.setAttribute('role', 'radiogroup'); modes.setAttribute('aria-label', 'Chế độ ' + title.toLowerCase());
-      for (const m of list) {
-        const b = el2('button', 'lob-modebtn m-' + m, MODE_INFO[m][0]);
-        b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', m === md ? 'true' : 'false');
-        if (owner) b.dataset.act = 'mode:' + m; else b.disabled = true;
-        modes.append(b);
+    // mode: one row showing the current mode; the owner opens it to pick another
+    body.append(modeRow(md, owner));
+    if (owner && modeOpen) {
+      const list = el2('div', 'mode-list');
+      list.setAttribute('role', 'listbox'); list.setAttribute('aria-label', 'Chế độ chơi');
+      for (const [title, ms] of MODE_GROUPS) {
+        list.append(el2('div', 'lob-group', title));
+        const grid = el2('div', 'mode-grid');
+        for (const m of ms) {
+          const t = btn('mode-tile' + (m === md ? ' on' : ''), '', 'mode:' + m, MODE_INFO[m][1]);
+          t.setAttribute('role', 'option'); t.setAttribute('aria-selected', m === md ? 'true' : 'false');
+          t.append(el2('span', 'mode-ico', MODE_ICONS[m]), el2('span', '', MODE_INFO[m][0]));
+          grid.append(t);
+        }
+        list.append(grid);
       }
-      body.append(modes);
+      body.append(list);
     }
-    body.append(el2('p', 'lob-desc', MODE_INFO[md][1]));
+    if (md !== 'c') body.append(mapPicker(net.mp, owner));   // the campaign has a map per stage
     if (md === 'c') {
       // campaign: start from any stage this room has reached
       const st = el2('div', 'lob-stages');
@@ -118,11 +125,15 @@ function renderRoomPanel() {
     }
     if (owner) {
       const tools = el2('div', 'lob-tools');
-      const pub = el2('label', 'lob-switch');
-      pub.title = 'Người lạ thấy phòng này trong danh sách phòng công khai và vào được';
-      const pc = el2('input'); pc.type = 'checkbox'; pc.checked = net.pb; pc.dataset.act = 'public';
-      pub.append(pc, el2('span', '', 'Công khai'));
-      tools.append(pub);
+      // public: listed for strangers; private: only people with the link
+      const seg = el2('div', 'lob-seg');
+      seg.setAttribute('role', 'radiogroup'); seg.setAttribute('aria-label', 'Ai vào được phòng');
+      for (const [on, label, title] of [[1, '🌐 Công khai', 'Hiện trong danh sách phòng, ai cũng vào được'], [0, '🔒 Riêng tư', 'Chỉ ai có link mới vào được']]) {
+        const b = btn('', label, 'public:' + on, title);
+        b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', !!on === net.pb ? 'true' : 'false');
+        seg.append(b);
+      }
+      tools.append(seg);
       if (net.sa <= 0) tools.append(btn('lob-link sm', '▶ Bắt đầu ngay', 'start', 'Không đợi mọi người: ai đã sẵn sàng thì vào'));
       body.append(tools);
     }
@@ -131,6 +142,50 @@ function renderRoomPanel() {
   const foot = el2('div', 'lob-row');
   foot.append(btn('lob-link sm', '← Rời phòng', 'leave'), btn('lob-link sm', '⇆ 2 người 1 máy', 'local'));
   body.append(foot);
+}
+
+// the current mode as one row: icon, name and what it is about; the owner clicks it to open the picker
+function modeRow(m, clickable) {
+  const r = el2(clickable ? 'button' : 'div', 'mode-row m-' + m);
+  if (clickable) { r.dataset.act = 'modes'; r.setAttribute('aria-expanded', modeOpen ? 'true' : 'false'); r.title = 'Đổi chế độ'; }
+  const txt = el2('span', 'mode-txt');
+  txt.append(el2('b', '', MODE_INFO[m][0]), el2('span', '', MODE_INFO[m][1]));
+  r.append(el2('span', 'mode-ico', MODE_ICONS[m]), txt);
+  if (clickable) r.append(el2('span', 'mode-caret', modeOpen ? '▴' : 'đổi ▾'));
+  return r;
+}
+
+// map: a small preview of the walls, then the choices (the owner picks; others see the current one)
+function mapPicker(cur, owner) {
+  const box = el2('div', 'map-pick');
+  const pv = el2('canvas', 'map-pv');
+  pv.width = 60; pv.height = 52; pv.setAttribute('aria-hidden', 'true');
+  drawMapPreview(pv, cur);
+  const right = el2('div', 'map-right');
+  right.append(el2('div', 'lob-group', 'Map'));
+  const chips = el2('div', 'map-chips');
+  for (const id of owner ? Object.keys(MAP_NAMES) : [cur]) {
+    const b = el2(owner ? 'button' : 'span', 'map-chip' + (id === cur ? ' on' : ''), MAP_NAMES[id] || id);
+    if (owner) { b.dataset.act = 'map:' + id; b.setAttribute('aria-pressed', id === cur ? 'true' : 'false'); }
+    chips.append(b);
+  }
+  right.append(chips);
+  box.append(pv, right);
+  return box;
+}
+// the walls of a map on a 15x13 board, one pixel block per cell ('random': a question mark)
+function drawMapPreview(cv, id) {
+  const g = cv.getContext('2d'), w = 15, h = 13, s = Math.min(cv.width / w, cv.height / h);
+  g.fillStyle = '#1f1f1f'; g.fillRect(0, 0, cv.width, cv.height);
+  if (!MAPS[id]) { g.fillStyle = '#6e7681'; g.font = '600 22px ' + UI_FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('?', cv.width / 2, cv.height / 2 + 1); return; }
+  const mx = (w >> 1) & ~1, my = (h >> 1) & ~1, wall = MAPS[id];
+  const [, , px1, px2, py1, py2] = BOARD_SIZES.find(b => b[0] === w && b[1] === h);   // the portals of this board
+  const portal = (x, y) => (x === px1 && y === py1) || (x === px2 && y === py2);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const edge = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+    const c = portal(x, y) ? '#9d8fbf' : edge || wall(x, y, mx, my, w >> 1, h >> 1) ? '#4a4a4a' : null;
+    if (c) { g.fillStyle = c; g.fillRect(x * s, y * s, s - .5, s - .5); }
+  }
 }
 
 /* ---------- roster: who is in the room (lobby: ready marks; in a round: scores and who is out) ---------- */
@@ -181,12 +236,13 @@ function renderRoster() {
 function renderRooms() {
   const box = $('roomsBody');
   const others = publicRooms.filter(r => r.id !== ROOM_ID).slice(0, 8);
+  $('roomsSec').hidden = !!ROOM_ID && !kickedOut && !roomFull && mode === 'online';   // in a room: the list is just noise
   const key = JSON.stringify(others);
   if (key === roomsKey) return;
   roomsKey = key;
   box.textContent = '';
   $('rcount').textContent = others.length || '';
-  if (!others.length) { box.append(el2('p', 'empty', 'Chưa có phòng công khai nào. Bấm "Tạo phòng công khai" để người khác tìm thấy bạn.')); return; }
+  if (!others.length) { box.append(el2('p', 'empty', 'Chưa có phòng nào. Bấm "Tạo phòng" để mở một phòng mới.')); return; }
   const ul = el2('ul', 'lob-roomlist');
   for (const r of others) {
     const li = el2('li');
@@ -220,14 +276,15 @@ function quickPlay() {
     toast('Đã mở phòng công khai', 'Chưa có phòng nào đang chờ, nên phòng này đã được mở cho mọi người.');
     return;
   }
-  createRoom2(true);
+  createRoom2();
 }
-function createRoom2(pub) {
+// new rooms are public; the owner can make one private from inside it
+function createRoom2() {
   const id = randId(5);
-  if (pub) sstore('bt-pub', id);
+  sstore('bt-pub', id);
   goRoom(id);
 }
-// a room created as public (or opened by quick play) becomes public as soon as we own it
+// a new room becomes public as soon as we own it
 function maybeMakePublic() {
   if (!ROOM_ID || sstore('bt-pub') !== ROOM_ID || !isOwner() || !net) return;
   if (!net.pb) room.cmd({ c: 'public', on: true });
@@ -278,14 +335,17 @@ const SHOP_PRICES = { b: 3, f: 3, s: 2, k: 4, h: 5 };   // same as SHOP in pve.j
 /* ---------- actions ---------- */
 async function onSideAct(t, e) {
   const [act, arg] = t.dataset.act.split(':');
-  if (act === 'mode') room.cmd({ c: 'mode', m: arg });
+  if (act === 'map') room.cmd({ c: 'map', map: arg });
+  else if (act === 'mode') { room.cmd({ c: 'mode', m: arg }); modeOpen = false; renderRoomPanel(); }
+  else if (act === 'modes') { modeOpen = !modeOpen; renderRoomPanel(); }
   else if (act === 'stage') room.cmd({ c: 'stage', n: +arg });
   else if (act === 'start') room.cmd({ c: 'start' });
   else if (act === 'lobby') room.cmd({ c: 'lobby' });
   else if (act === 'ready') room.cmd({ c: 'ready', on: arg === '1' });
   else if (act === 'buy') room.cmd({ c: 'buy', item: arg });
+  else if (act === 'public') room.cmd({ c: 'public', on: arg === '1' });
   else if (act === 'quick') quickPlay();
-  else if (act === 'create') createRoom2(arg === 'pub');
+  else if (act === 'create') createRoom2();
   else if (act === 'room') goRoom(arg);
   else if (act === 'leave') leaveRoom();
   else if (act === 'drawer') setDrawer(true);
@@ -309,7 +369,6 @@ $('plist').addEventListener('pointerdown', e => {
 $('roomBody').addEventListener('change', e => {
   const act = e.target.dataset.act;
   if (act === 'join') { joined = e.target.checked; pushMe(); }
-  else if (act === 'public') room.cmd({ c: 'public', on: e.target.checked });
 });
 $('roomBody').addEventListener('submit', e => {
   e.preventDefault();

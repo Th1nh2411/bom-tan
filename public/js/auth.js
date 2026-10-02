@@ -21,10 +21,9 @@ function renderAuth() {
   const account = authInfo && !authInfo.guest;
   $('authWho').hidden = !authInfo;
   $('authEmail').textContent = !authInfo ? 'khách · chưa đăng nhập' : authInfo.guest ? 'khách' : (authInfo.email || authInfo.name || 'Đã đăng nhập');
-  // signed in with Google: the in-game name comes from the account and is locked; guests keep editing theirs
-  $('name').readOnly = account;
-  $('name').title = account ? 'Tên lấy từ tài khoản đăng nhập' : '';
-  if (account && authInfo.name && myName !== authInfo.name) { myName = authInfo.name; $('name').value = myName; store('bt-name', myName); if (room) pushMe(); }
+  // signed in with Google: the in-game name comes from the account
+  if (account && authInfo.name && myName !== authInfo.name) { myName = authInfo.name; store('bt-name', myName); if (room) pushMe(); }
+  if (typeof renderMe === 'function') renderMe();
 
   document.body.classList.toggle('guest', !authInfo);
   // achievements are for signed-in players: hide the tab, and leave it if it was open
@@ -51,7 +50,7 @@ function renderAuth() {
 function joinAsGuest(name) {
   const n = cleanName(name);
   if (!n) return false;
-  myName = n; $('name').value = n; store('bt-name', n);
+  myName = n; store('bt-name', n);
   saveAuth({ session: '', by: PLAYER_KEY, name: n, email: '', guest: true });
   return true;
 }

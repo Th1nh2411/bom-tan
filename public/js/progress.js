@@ -2,8 +2,9 @@
 const HATS = {
   cap: 'Mũ lưỡi trai', beanie: 'Mũ len', crown: 'Vương miện', horns: 'Sừng quỷ', halo: 'Vòng thánh',
   bow: 'Nơ', headphones: 'Tai nghe', antenna: 'Ăng-ten', nurse: 'Mũ y tá',
+  viking: 'Mũ Viking', knight: 'Mũ hiệp sĩ', wizard: 'Mũ phù thuỷ', pirate: 'Mũ hải tặc', tophat: 'Mũ chóp cao',
 };
-// check(ctx): ctx = { row (my end-of-round stats), won, md (mode), prog (lifetime totals) }
+// check(ctx): ctx = { row (my end-of-round stats), won, md (mode), prog (lifetime totals), s (the final snapshot), me (my player in it) }
 const ACHIEVEMENTS = [
   { id: 'first_win', name: 'Lần đầu thắng', desc: 'Thắng 1 ván', hat: 'cap', check: c => c.won },
   { id: 'veteran', name: 'Lão làng', desc: 'Chơi 30 ván', hat: 'beanie', check: c => c.prog.r >= 30, goal: () => [prog.r, 30] },
@@ -14,6 +15,12 @@ const ACHIEVEMENTS = [
   { id: 'survivor', name: 'Người sống sót', desc: 'Không bị lây trong chế độ zombie', hat: 'headphones', check: c => c.md === 'z' && c.won && !c.row.zb },
   { id: 'patient_zero', name: 'Bệnh nhân số 0', desc: 'Lây cho 3 người trong 1 ván zombie', hat: 'antenna', check: c => c.md === 'z' && c.row.k >= 3 },
   { id: 'medic', name: 'Cứu thương', desc: 'Cứu 2 đồng đội trong 1 ván', hat: 'nurse', check: c => c.row.rv >= 2 },
+  // co-op and boss modes
+  { id: 'exterminator', name: 'Thợ diệt quái', desc: 'Diệt 15 quái trong 1 ván', hat: 'viking', check: c => c.row.mk >= 15 },
+  { id: 'boss_slayer', name: 'Diệt boss', desc: 'Thắng một ván Đánh boss', hat: 'knight', check: c => c.md === 'b' && c.won },
+  { id: 'unbroken', name: 'Bất khuất', desc: 'Trụ qua 10 đợt trong Sinh tồn', hat: 'wizard', check: c => c.md === 'v' && c.s.wv - 1 >= 10 },
+  { id: 'campaign', name: 'Phá đảo', desc: 'Qua hết 10 ải trong Đi ải', hat: 'pirate', check: c => c.md === 'c' && c.won },
+  { id: 'final_boss', name: 'Trùm cuối', desc: 'Thắng khi làm boss trong Săn boss', hat: 'tophat', check: c => c.md === 'h' && c.won && !!c.me && c.me.boss },
 ];
 
 let prog = (() => {
@@ -31,7 +38,7 @@ function onRoundEnd(s) {
   prog.r++;
   const won = s.wi.includes(myPeer);
   if (won) prog.w++;
-  const ctx = { row, won, md: s.md, prog };
+  const ctx = { row, won, md: s.md, prog, s, me: s.pl.find(p => p.id === myPeer) };
   const fresh = ACHIEVEMENTS.filter(a => !prog.a[a.id] && a.check(ctx));
   for (const a of fresh) prog.a[a.id] = Date.now();
   saveProg();
@@ -145,6 +152,25 @@ function drawHat(h, cx, cy, r, g = ctx) {
     poly([[cx - r * .55, top + r * .3], [cx - r * .45, top - r * .2], [cx + r * .45, top - r * .2], [cx + r * .55, top + r * .3]], '#e6e6e6');
     g.fillStyle = '#c77f8c';
     g.fillRect(cx - r * .07, top - r * .1, r * .14, r * .34); g.fillRect(cx - r * .17, top + r * .0, r * .34, r * .14);
+  } else if (h === 'viking') {
+    poly([[cx - r * .55, top + r * .25], [cx - r * 1.0, top - r * .45], [cx - r * .75, top + r * .2]], '#e6ddc8');
+    poly([[cx + r * .55, top + r * .25], [cx + r * 1.0, top - r * .45], [cx + r * .75, top + r * .2]], '#e6ddc8');
+    g.fillStyle = '#8a8f96'; g.beginPath(); g.arc(cx, top + r * .4, r * .68, Math.PI, 0); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#5a5e64'; g.fillRect(cx - r * .68, top + r * .3, r * 1.36, r * .14);
+  } else if (h === 'knight') {
+    g.fillStyle = '#b8bcc2'; g.beginPath(); g.arc(cx, top + r * .5, r * .72, Math.PI, 0); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = '#181818'; g.fillRect(cx - r * .45, top + r * .28, r * .9, r * .09);
+    poly([[cx - r * .08, top - r * .2], [cx + r * .1, top - r * .75], [cx + r * .4, top - r * .55], [cx + r * .12, top - r * .15]], '#c77f8c');
+  } else if (h === 'wizard') {
+    poly([[cx - r * .75, top + r * .3], [cx + r * .1, top - r * 1.05], [cx + r * .75, top + r * .3]], '#7c6fa8');
+    g.fillStyle = '#c9b27a'; g.beginPath(); g.arc(cx - r * .05, top - r * .2, r * .1, 0, 7); g.arc(cx + r * .25, top + r * .1, r * .07, 0, 7); g.fill();
+  } else if (h === 'pirate') {
+    poly([[cx - r * .85, top + r * .25], [cx - r * .5, top - r * .35], [cx, top - r * .15], [cx + r * .5, top - r * .35], [cx + r * .85, top + r * .25]], '#2a2a2a');
+    g.fillStyle = '#e6e6e6'; g.beginPath(); g.arc(cx, top + r * .02, r * .13, 0, 7); g.fill();
+  } else if (h === 'tophat') {
+    g.fillStyle = '#222'; g.fillRect(cx - r * .45, top - r * .75, r * .9, r * .95); g.strokeRect(cx - r * .45, top - r * .75, r * .9, r * .95);
+    g.fillRect(cx - r * .75, top + r * .12, r * 1.5, r * .18); g.strokeRect(cx - r * .75, top + r * .12, r * 1.5, r * .18);
+    g.fillStyle = '#c77f8c'; g.fillRect(cx - r * .45, top - r * .02, r * .9, r * .14);
   }
   g.restore();
 }

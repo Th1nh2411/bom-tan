@@ -84,11 +84,15 @@ function updateOverlay() {
 
 // sidebar profile row: avatar in the player's colour, name, account
 function renderMe() {
-  const av = $('meAvatar'), ini = (myName.trim()[0] || '?').toUpperCase();
-  if (av.textContent !== ini) av.textContent = ini;
-  av.style.background = COLORS[myColor];
-  if ($('meName').textContent !== myName) $('meName').textContent = myName;
+  const ini = (myName.trim()[0] || '?').toUpperCase(), shown = isLoggedIn() ? myName : 'Khách';
+  for (const id of ['meAvatar', 'meAvatarBig']) { const av = $(id); if (av.textContent !== ini) av.textContent = ini; av.style.background = COLORS[myColor]; }
+  if ($('meName').textContent !== shown) $('meName').textContent = shown;
+  if ($('meBtnName').textContent !== shown) $('meBtnName').textContent = shown;
 }
+// "Bạn" menu in the title bar: who you are, sign out, your colour
+function setMeMenu(open) { $('mePanel').hidden = !open; $('meBtn').setAttribute('aria-expanded', open ? 'true' : 'false'); }
+$('meBtn').onclick = () => setMeMenu($('mePanel').hidden);
+addEventListener('pointerdown', e => { if (!$('mePanel').hidden && !$('meMenu').contains(e.target)) setMeMenu(false); });
 function renderList() {
   renderMe();
   renderRoster();
@@ -175,7 +179,8 @@ function updateNetText() {
 function updateStatus() {
   const s = snap, room0 = mode === 'online' ? net : null;
   cv.style.cursor = canGhost() ? 'crosshair' : '';
-  $('stMode').textContent = mode === 'local' ? 'chế độ: 1 máy' : room0 ? 'chế độ: ' + MODE_INFO[room0.md][0].toLowerCase() : '';
+  const mapName = s && !practice && s.ph !== 'lobby' && MAP_NAMES[s.mp] ? ' · map: ' + MAP_NAMES[s.mp].toLowerCase() : '';
+  $('stMode').textContent = (mode === 'local' ? 'chế độ: 1 máy' : room0 ? 'chế độ: ' + MODE_INFO[room0.md][0].toLowerCase() : '') + mapName;
   let host = '';
   if (room0 && room0.ow) {
     const hp = peers().find(p => p.peer === room0.ow);
@@ -230,6 +235,7 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'Backquote') { e.preventDefault(); return setPause(false); }
   if (e.key !== 'Escape') return;
+  if (!$('mePanel').hidden) return setMeMenu(false);
   if (document.body.classList.contains('drawer-open')) return setDrawer(false);
   setPause(true);
 });

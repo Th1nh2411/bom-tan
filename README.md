@@ -14,6 +14,8 @@ Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 ngườ
 - Đi ải: 10 ải, ải 5 và 10 là boss; diệt hết quái rồi tìm cửa ra giấu dưới thùng.
 - 5 loại quái: nhầy, dơi, ma (xuyên thùng), quỷ con (né bom), giáp sắt (3 máu).
 
+**Map:** Cổ điển, Đấu trường, Ngã tư, Bốn phòng, Pháo đài, hoặc Ngẫu nhiên; chủ phòng chọn trong sảnh. Đi ải có map riêng cho từng ải.
+
 **Luật chơi:**
 - Cổng dịch chuyển; lửa bom cũng đi xuyên qua cổng.
 - 5 loại vật phẩm tốt: thêm bom, nổ xa, chạy nhanh, đá bom, khiên. Có thêm vật phẩm xấu 💀 gây lời nguyền và lây khi chạm.
@@ -24,7 +26,7 @@ Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 ngườ
 
 **Ngoài ván chơi:**
 - Thống kê cuối ván và bảng xếp hạng.
-- 9 thành tích, mỗi thành tích mở khóa một chiếc mũ.
+- 14 thành tích, mỗi thành tích mở khóa một chiếc mũ (5 thành tích của chế độ hợp tác và săn boss).
 - Đăng nhập Google để giữ điểm khi đổi máy (tuỳ chọn).
 
 ## Cấu trúc

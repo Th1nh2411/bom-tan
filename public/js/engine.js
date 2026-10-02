@@ -27,12 +27,34 @@ function setDims(w, h) {
   return true;
 }
 setDims(15, 13);
-// random spawns on odd/odd cells (never next to a pillar trap), spread apart and away from portals
-function pickSpawns(n) {
+// Maps: which inner cells are walls. Every map keeps the portals free and the board in one piece;
+// spawns go on open odd/odd cells. (x, y) inside the border; mx/my: the even column/row nearest the middle;
+// cx/cy: the middle cell.
+const MAPS = {
+  classic: (x, y) => x % 2 === 0 && y % 2 === 0,                                        // Cổ điển: a pillar every other cell
+  open: (x, y) => x % 4 === 0 && y % 4 === 0,                                           // Đấu trường: few pillars, lots of room
+  cross: (x, y, mx, my) => x % 2 === 0 && y % 2 === 0 && x !== mx && y !== my,          // Ngã tư: two wide avenues through the middle
+  rooms: (x, y, mx, my) => (x === mx && y % 4 !== 1) || (y === my && x % 4 !== 1) || (x % 4 === 0 && y % 4 === 0),   // Bốn phòng: four rooms with doors
+  fort: (x, y, mx, my, cx, cy) => (Math.abs(x - cx) <= 1 && Math.abs(y - cy) <= 1) || (x % 2 === 0 && y % 2 === 0 && (Math.abs(x - cx) > 2 || Math.abs(y - cy) > 2)),   // Pháo đài: a solid block in the middle, an open ring around it
+};
+const MAP_IDS = Object.keys(MAPS);
+// build the walls of a map into grid (boxes and floor are left to the caller); returns the map id used
+function buildWalls(grid, id) {
+  const mapId = MAPS[id] ? id : MAP_IDS[Math.floor(Math.random() * MAP_IDS.length)];
+  const wall = MAPS[mapId], mx = (W >> 1) & ~1, my = (H >> 1) & ~1, portals = PORTALS.flat();
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = idx(x, y), edge = x === 0 || y === 0 || x === W - 1 || y === H - 1;
+    if (edge || (wall(x, y, mx, my, W >> 1, H >> 1) && !portals.includes(i))) grid[i] = '#';
+    else if (grid[i] === '#') grid[i] = '.';
+  }
+  return mapId;
+}
+// random spawns on open odd/odd cells (never next to a pillar trap), spread apart and away from portals
+function pickSpawns(n, open = () => true) {
   const portals = PORTALS.flat().map(c => [c % W, (c / W) | 0]);
   const cand = [];
   for (let y = 1; y < H - 1; y += 2) for (let x = 1; x < W - 1; x += 2)
-    if (portals.every(([px, py]) => Math.abs(px - x) + Math.abs(py - y) > 3)) cand.push([x, y]);
+    if (open(idx(x, y)) && portals.every(([px, py]) => Math.abs(px - x) + Math.abs(py - y) > 3)) cand.push([x, y]);
   const out = [];
   for (let minD = Math.floor((W + H) / 3); out.length < n && minD >= 0; minD--) {
     const pool = cand.filter(([x, y]) => out.every(([ox, oy]) => Math.abs(ox - x) + Math.abs(oy - y) >= minD));
@@ -85,7 +107,8 @@ function applyRule(g) {
 
 // opts.mode: 's' solo, 't' teams, 'z' zombie, or a co-op / boss mode from pve.js ('v' waves, 'b' boss,
 // 'c' campaign, 'h' boss hunt); teams stays for old callers. opts.rule: a DAILY_RULES key or ''.
-// opts.boxes: share of free cells that get a box (default .72); opts.stage: campaign stage
+// opts.boxes: share of free cells that get a box (default .72); opts.stage: campaign stage;
+// opts.map: a MAPS id, 'random', or nothing for the classic board
 function newGame(slots, teams, opts = {}) {
   const gmode = opts.mode || (teams ? 't' : 's');
   teams = gmode === 't';
@@ -93,10 +116,8 @@ function newGame(slots, teams, opts = {}) {
   setDims(sz[0], sz[1]);
   const grid = new Array(W * H).fill('.');
   const hidden = new Array(W * H).fill('');
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    if (x === 0 || y === 0 || x === W - 1 || y === H - 1 || (x % 2 === 0 && y % 2 === 0)) grid[idx(x, y)] = '#';
-  }
-  const spawns = pickSpawns(slots.length);
+  const mapId = buildWalls(grid, opts.map || 'classic');
+  const spawns = pickSpawns(slots.length, i => grid[i] === '.');
   const portalCells = PORTALS.flat();
   const keepClear = (x, y) =>
     spawns.some(([sx, sy]) => Math.abs(sx - x) + Math.abs(sy - y) <= 2) ||
@@ -121,7 +142,7 @@ function newGame(slots, teams, opts = {}) {
     z.zb = true; z.z0 = true;
   }
   const g = {
-    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode, rule: DAILY_RULES[opts.rule] ? opts.rule : '',
+    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode, map: mapId, rule: DAILY_RULES[opts.rule] ? opts.rule : '',
     ph: 'count', timer: COUNT_T, grid, hidden, bombs: [], flames: new Map(), burn: new Map(),
     players, winner: null, winnerIds: [], kills: [], revives: [], bid: 0, justEnded: false
   };
@@ -508,7 +529,7 @@ function stepGame(g, inputs, dt, scores) {
 
 function snapshot(g, scores) {
   return {
-    rid: g.rid, md: g.mode || (g.teams ? 't' : 's'), gw: W, gh: H, ru: g.rule || '',
+    rid: g.rid, md: g.mode || (g.teams ? 't' : 's'), gw: W, gh: H, ru: g.rule || '', mp: g.map || 'classic',
     ph: g.ph, tm: Math.ceil(Math.max(0, g.timer)),
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),

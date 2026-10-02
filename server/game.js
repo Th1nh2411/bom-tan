@@ -9,7 +9,7 @@ import vm from 'node:vm';
 
 const ctx = vm.createContext({});
 for (const f of ['engine.js', 'pve.js']) vm.runInContext(readFileSync(new URL('../public/js/' + f, import.meta.url), 'utf8'), ctx, { filename: f });
-const E = vm.runInContext('({ get W() { return W; }, get H() { return H; }, get emptyGrid() { return emptyGrid; }, setDims, sizeFor, newGame, stepGame, snapshot, ghostDrop, buyItem, STAGES })', ctx);
+const E = vm.runInContext('({ get W() { return W; }, get H() { return H; }, get emptyGrid() { return emptyGrid; }, setDims, sizeFor, newGame, stepGame, snapshot, ghostDrop, buyItem, STAGES, MAP_IDS })', ctx);
 const MODES = ['s', 't', 'z', 'h', 'v', 'b', 'c'];
 const COOP = new Set(['v', 'b', 'c']);
 
@@ -32,6 +32,7 @@ export function newRoomGame() {
     ready: new Set(), startAt: 0, startIn: -1,   // lobby: who is ready, and the auto-start countdown
     pub: false,                                   // listed in the public room list
     stage: 1, unlocked: 1,                        // campaign: start stage, and the furthest stage reached here
+    map: 'random',                                // a MAPS id or 'random' (the campaign has its own maps)
     body: null, bodyStr: '', grid: ''   // the last snapshot sent: diffs are made against it
   };
 }
@@ -97,7 +98,7 @@ function startRound(r) {
     slots = [];
     for (let k = 0; k < Math.max(t0.length, t1.length); k++) { if (t0[k]) slots.push(t0[k]); if (t1[k]) slots.push(t1[k]); }
   }
-  gs.g = E.newGame(slots, gs.mode === 't', { mode: gs.mode, stage: gs.stage });
+  gs.g = E.newGame(slots, gs.mode === 't', { mode: gs.mode, stage: gs.stage, map: gs.map });
   gs.gw = E.W; gs.gh = E.H; gs.pz = false; gs.missing.clear(); gs.startAt = 0;
 }
 
@@ -152,7 +153,7 @@ export function refresh(r) {
   if (gs.kicked.size) raw.kk = [...gs.kicked];
   raw.ow = activeOwner(r) || '';
   raw.pb = gs.pub ? 1 : 0;
-  if (!gs.g) { raw.rd = [...gs.ready]; raw.sa = gs.startIn; raw.cs = gs.stage; raw.cu = gs.unlocked; }
+  if (!gs.g) { raw.rd = [...gs.ready]; raw.sa = gs.startIn; raw.cs = gs.stage; raw.cu = gs.unlocked; raw.mp = gs.map; }
   // the grid travels on its own and only when it changes
   const { g: grid, ...body } = raw;
   const bodyStr = JSON.stringify(body);
@@ -215,6 +216,7 @@ export function command(r, me, m) {
   }
   if (me !== activeOwner(r)) return;
   if (m.c === 'mode') { if (!gs.g && MODES.includes(m.m)) gs.mode = m.m; }
+  else if (m.c === 'map') { if (!gs.g && (m.map === 'random' || E.MAP_IDS.includes(m.map))) gs.map = m.map; }
   else if (m.c === 'stage') { const n = m.n | 0; if (!gs.g && n >= 1 && n <= gs.unlocked) gs.stage = n; }
   else if (m.c === 'start') { if (!gs.g) { gs.ready.add(me); startRound(r); } }   // the owner can start without waiting for everyone
   else if (m.c === 'lobby') { if (gs.g) backToLobby(r); }

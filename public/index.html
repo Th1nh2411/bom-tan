@@ -11,6 +11,20 @@
   <button class="drawer-btn" id="drawerBtn" aria-label="Mở bảng điều khiển" aria-expanded="false" aria-controls="side">☰</button>
   <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
   <h1>bom_tan.js — workspace</h1>
+  <div class="me-menu" id="meMenu">
+    <button class="me-btn" id="meBtn" aria-haspopup="true" aria-expanded="false" aria-controls="mePanel" title="Bạn">
+      <span class="avatar" id="meAvatar" aria-hidden="true"></span><span class="me-btn-name" id="meBtnName"></span><span class="me-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="me-panel" id="mePanel" hidden>
+      <div class="me-card">
+        <span class="avatar" id="meAvatarBig" aria-hidden="true"></span>
+        <div class="me-info"><b id="meName"></b><span id="authEmail"></span></div>
+        <div class="who" id="authWho" hidden><button class="linkbtn" id="signOutBtn">Đăng xuất</button></div>
+      </div>
+      <div class="me-label">Màu nhân vật</div>
+      <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
+    </div>
+  </div>
   <button id="muteBtn" aria-label="Tắt âm thanh">🔊</button>
 </div>
 <div class="tabbar" role="tablist">
@@ -33,18 +47,6 @@
         <button class="b run" type="submit">Vào chơi</button>
       </form>
     </div>
-    <details class="sec" id="meSec" open>
-      <summary>bạn</summary>
-      <div class="me-card">
-        <span class="avatar" id="meAvatar" aria-hidden="true"></span>
-        <div class="me-info"><b id="meName"></b><span id="authEmail"></span></div>
-        <div class="who" id="authWho" hidden><button class="linkbtn" id="signOutBtn">Đăng xuất</button></div>
-      </div>
-      <label class="f" for="name"><span class="tk-kw">let</span>tênTrongGame =</label>
-      <input type="text" id="name" maxlength="12" autocomplete="off">
-      <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
-      <div id="hatsWrap" hidden><label class="f">Mũ</label><div class="hats" id="hats" role="group" aria-label="Mũ"></div></div>
-    </details>
     <details class="sec" id="roomSec" open>
       <summary><span id="roomTitle">phòng</span> <span class="badge" id="roomBadge"></span></summary>
       <div class="room" id="roomBody"></div>
@@ -63,10 +65,6 @@
     <details class="sec" id="roomsSec" open>
       <summary>phòng công khai <span class="badge" id="rcount"></span></summary>
       <div id="roomsBody"></div>
-    </details>
-    <details class="sec" open>
-      <summary>biểu cảm</summary>
-      <div class="emotes" id="emotes"></div>
     </details>
   </aside>
   <div class="scrim" id="scrim"></div>
@@ -91,6 +89,7 @@
       <div class="info-panel" id="tab-ach" role="tabpanel">
         <h2 id="achTitle">thành tích</h2>
         <div class="ach-stats" id="achStats"></div>
+        <div class="ach-hats" id="hatsWrap" hidden><h3>Mũ đang đội</h3><div class="hats" id="hats" role="group" aria-label="Mũ"></div></div>
         <ul class="ach" id="achList"></ul>
       </div>
       <div class="info-panel" id="tab-lb" role="tabpanel">
@@ -195,6 +194,13 @@
               <li>10 ải nối tiếp, ải 5 và ải 10 là boss. Vật phẩm nhặt được giữ qua các ải.</li>
               <li>Diệt hết quái thì cửa ra (giấu dưới một thùng) mở, ai đứng vào là cả đội qua ải. Qua nhanh được nhiều ★.</li>
               <li>Ải đã qua được mở khóa trong phòng: lần sau chủ phòng chọn bắt đầu từ ải đó.</li>
+            </ul>
+          </section>
+          <section class="help-card wide">
+            <h3>Map</h3>
+            <ul class="facts">
+              <li><b>Cổ điển</b>: cột đá cách đều từng ô. <b>Đấu trường</b>: ít cột, rộng rãi. <b>Ngã tư</b>: hai đại lộ thoáng cắt nhau ở giữa. <b>Bốn phòng</b>: tường chia bốn phòng, có cửa thông nhau. <b>Pháo đài</b>: một khối đá đặc ở giữa.</li>
+              <li>Chủ phòng chọn map trong sảnh, hoặc để Ngẫu nhiên. Đi ải có map riêng cho từng ải. Sân tập và chơi 1 máy dùng map ngẫu nhiên.</li>
             </ul>
           </section>
           <section class="help-card wide">

@@ -5,17 +5,15 @@ if (!(myColor >= 0 && myColor < 8)) myColor = Math.floor(Math.random() * 8);
 let myTeam = Number(store('bt-team') ?? NaN);
 if (!(myTeam === 0 || myTeam === 1)) myTeam = -1;
 let joined = true;
-$('name').value = myName;
 
 const swWrap = $('swatches');
 COLORS.forEach((c, k) => {
   const b = document.createElement('button');
   b.className = 'sw'; b.style.background = c; b.setAttribute('aria-label', 'Màu ' + (k + 1));
   b.setAttribute('aria-pressed', k === myColor ? 'true' : 'false');
-  b.onclick = () => { myColor = k; store('bt-color', String(k)); [...swWrap.children].forEach((x, j) => x.setAttribute('aria-pressed', j === k ? 'true' : 'false')); pushMe(); renderProgress(); };
+  b.onclick = () => { myColor = k; store('bt-color', String(k)); [...swWrap.children].forEach((x, j) => x.setAttribute('aria-pressed', j === k ? 'true' : 'false')); pushMe(); renderProgress(); renderMe(); };
   swWrap.appendChild(b);
 });
-$('name').addEventListener('input', () => { myName = cleanName($('name').value) || 'Ẩn danh'; store('bt-name', myName); pushMe(); });
 function syncTeamBtns() { $('team0').setAttribute('aria-pressed', myTeam === 0 ? 'true' : 'false'); $('team1').setAttribute('aria-pressed', myTeam === 1 ? 'true' : 'false'); }
 [0, 1].forEach(t => $('team' + t).onclick = () => { myTeam = t; store('bt-team', String(t)); syncTeamBtns(); pushMe(); });
 syncTeamBtns();
@@ -24,12 +22,6 @@ syncTeamBtns();
 let emSeq = 0;
 const emShow = new Map();   // player/peer id -> {k, until}
 const emSeen = new Map();   // peer -> last seq
-EMOTES.forEach((e, k) => {
-  const b = document.createElement('button');
-  b.textContent = e; b.dataset.k = k + 1; b.setAttribute('aria-label', 'Thả ' + e + ' (phím ' + (k + 1) + ')');
-  b.onclick = () => sendEmote(k);
-  $('emotes').appendChild(b);
-});
 function sendEmote(k) {
   emSeq++;
   const id = mode === 'local' ? 'p1' : myPeer;
