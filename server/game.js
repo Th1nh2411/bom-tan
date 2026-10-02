@@ -13,7 +13,7 @@ const E = vm.runInContext('({ get W() { return W; }, get H() { return H; }, get 
 const MODES = ['s', 't', 'z', 'h', 'v', 'b', 'c'];
 const COOP = new Set(['v', 'b', 'c']);
 
-export const TICK_MS = 16;            // ~60 ticks a second; each tick steps the game and sends what changed
+export const TICK_MS = 33;            // ~30 ticks a second; each tick steps the game and sends what changed (clients smooth/predict in between)
 const RECONNECT_MS = 5000;           // a dropped player gets this long to come back before they are out
 const OWNER_GRACE_MS = 1500;         // a reconnecting room owner keeps the room for this long
 const AUTO_START_MS = 3000;          // everyone in the lobby is ready: the round starts after this countdown

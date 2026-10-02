@@ -273,7 +273,7 @@ function onConnection(ws) {
 
 export function attach(server) {
   // compress messages: snapshots repeat a lot between frames, so deflate with context takeover shrinks them a lot
-  const wss = new WebSocketServer({ server, maxPayload: 16 * 1024, perMessageDeflate: { threshold: 64, zlibDeflateOptions: { level: 6 } } });
+  const wss = new WebSocketServer({ server, maxPayload: 16 * 1024, perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 1 } } });   // only big frames (full state) are worth the CPU
   wss.on('connection', onConnection);
   if (!loop) loop = setInterval(tickAll, TICK_MS);
   const ping = setInterval(() => {
