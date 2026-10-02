@@ -64,7 +64,7 @@ function layBoxes(g, density) {
       portals.some(c => Math.abs(c % W - x) + Math.abs(((c / W) | 0) - y) <= 1);
     if (near || Math.random() >= density) continue;
     g.grid[i] = 'x';
-    if (Math.random() < 0.3) { const r = Math.random(); g.hidden[i] = r < .3 ? 'b' : r < .6 ? 'f' : r < .75 ? 's' : r < .87 ? 'k' : 'h'; }
+    if (Math.random() < 0.3) g.hidden[i] = rollItem();
   }
 }
 
@@ -144,7 +144,7 @@ function bfsStep(g, m, start, goal, avoid) {
 function danger(g) {
   if (g._danger) return g._danger;
   const d = new Set(g.flames.keys());
-  if (g.boss && g.boss.act) for (const i of g.boss.act.cells) d.add(i);
+  if (g.boss && g.boss.act) for (const w of g.boss.act.waves) for (const i of w.cells) d.add(i);
   for (const b of g.bombs) {
     d.add(b.i);
     for (const [dx, dy] of DIRS) {
@@ -266,57 +266,140 @@ function blast(g, i) {
   const b = g.bombs.find(o => o.i === i);
   if (b) explode(g, b);
 }
+// Boss attacks are made of waves: each wave warns on its cells, then lands when its timer runs out.
+// Every boss has three moves; when enraged it is faster and sometimes throws two moves at once.
+const BOSS_MOVES = {
+  king: ['rain', 'ring', 'line'],        // bombs around the players / a ring of bombs / a trail of bombs at you
+  dragon: ['breath', 'diag', 'meteor'],  // fire along your row or column / an X through you / fireballs that follow you
+  golem: ['slam', 'quake', 'rocks'],     // ground slam and slimes / shock rings out of it / falling rocks that become boxes
+  wraith: ['cross', 'blink', 'haunt'],   // a cross of fire / appears next to you and bursts / calls ghosts
+};
 function startAttack(g, b) {
-  const enraged = b.ph === 2, cells = new Set(), targets = g.players.filter(p => p.alive && p.team === 0);
-  if (!targets.length) return;
-  const inside = (x, y) => x > 0 && y > 0 && x < W - 1 && y < H - 1;
-  if (b.k === 'king') {
-    // bombs rain down around the players
-    const n = Math.min(9, 3 + targets.length + (enraged ? 2 : 0));
-    for (let tries = 0; cells.size < n && tries < 80; tries++) {
-      const p = pick(targets), x = Math.round(p.x) + Math.floor(Math.random() * 7) - 3, y = Math.round(p.y) + Math.floor(Math.random() * 7) - 3;
-      if (inside(x, y) && g.grid[idx(x, y)] === '.' && !g.bombs.some(o => o.i === idx(x, y))) cells.add(idx(x, y));
-    }
-    b.act = { k: 'bombs', t: 0.9, cells: [...cells] };
-  } else if (b.k === 'dragon') {
-    // fire breath along the row and/or column of the nearest player
-    const p = nearestPlayer(g, b.x, b.y), px = Math.round(p.x), py = Math.round(p.y);
-    const row = enraged || Math.random() < 0.5, col = enraged || !row;
-    if (row) for (let x = 1; x < W - 1; x++) if (g.grid[idx(x, py)] !== '#') cells.add(idx(x, py));
-    if (col) for (let y = 1; y < H - 1; y++) if (g.grid[idx(px, y)] !== '#') cells.add(idx(px, y));
-    b.act = { k: 'fire', t: 1.0, cells: [...cells] };
-  } else if (b.k === 'golem') {
-    // ground slam around up to two players, then calls in slimes
-    for (const p of targets.sort(() => Math.random() - 0.5).slice(0, enraged ? 3 : 2))
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-        const x = Math.round(p.x) + dx, y = Math.round(p.y) + dy;
-        if (inside(x, y) && g.grid[idx(x, y)] !== '#') cells.add(idx(x, y));
-      }
-    b.act = { k: 'slam', t: 1.0, cells: [...cells] };
-  } else if (b.k === 'wraith') {
-    if (!b.vis) return;
-    // a cross of fire out of the wraith, through boxes
-    const cx = Math.round(b.x), cy = Math.round(b.y), len = enraged ? 7 : 5;
-    for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) for (const [dx, dy] of DIRS)
-      for (let r = 0; r <= len; r++) {
-        const x = cx - 1 + ox + dx * r, y = cy - 1 + oy + dy * r;
-        if (!inside(x, y) || g.grid[idx(x, y)] === '#') break;
-        cells.add(idx(x, y));
-      }
-    b.act = { k: 'fire', t: 0.8, cells: [...cells] };
-  }
+  const targets = g.players.filter(p => p.alive && p.team === 0);
+  if (!targets.length || (b.k === 'wraith' && !b.vis)) return;
+  let waves = bossMove(g, b, pick(BOSS_MOVES[b.k]), targets);
+  if (b.ph === 2 && Math.random() < 0.4) waves = waves.concat(bossMove(g, b, pick(BOSS_MOVES[b.k]), targets).map(w => ({ ...w, t: w.t + 0.6 })));
+  waves = waves.filter(w => w.cells.length || w.k === 'blink');
+  if (waves.length) b.act = { waves };
 }
-function doAttack(g, b) {
-  const a = b.act;
-  if (a.k === 'bombs') {
-    for (const i of a.cells) {
+function bossMove(g, b, move, targets) {
+  const enraged = b.ph === 2, inside = (x, y) => x > 0 && y > 0 && x < W - 1 && y < H - 1;
+  const open = (x, y) => inside(x, y) && g.grid[idx(x, y)] !== '#';
+  const free = (x, y) => inside(x, y) && g.grid[idx(x, y)] === '.' && !g.bombs.some(o => o.i === idx(x, y));
+  const square = (cx, cy, R) => { const out = []; for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (open(cx + dx, cy + dy)) out.push(idx(cx + dx, cy + dy)); return out; };
+  const near = (p, n, R) => { const out = new Set(); for (let k = 0; out.size < n && k < 80; k++) { const x = Math.round(p.x) + Math.floor(Math.random() * (2 * R + 1)) - R, y = Math.round(p.y) + Math.floor(Math.random() * (2 * R + 1)) - R; if (free(x, y)) out.add(idx(x, y)); } return [...out]; };
+  const bx = Math.round(b.x), by = Math.round(b.y), p = nearestPlayer(g, b.x, b.y), px = Math.round(p.x), py = Math.round(p.y);
+  switch (move) {
+    case 'rain': {
+      const n = Math.min(9, 3 + targets.length + (enraged ? 2 : 0)), cells = new Set();
+      for (let k = 0; cells.size < n && k < 20; k++) for (const c of near(pick(targets), 1, 3)) cells.add(c);
+      return [{ k: 'bombs', t: 0.9, cells: [...cells] }];
+    }
+    case 'ring': {
+      // a ring of bombs around the boss (a smaller one when it stands near the edge)
+      for (let R = enraged ? 4 : 3; R >= 2; R--) {
+        const cells = [];
+        for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++)
+          if (Math.max(Math.abs(dx), Math.abs(dy)) === R && free(bx + dx, by + dy)) cells.push(idx(bx + dx, by + dy));
+        if (cells.length >= 3) return [{ k: 'bombs', t: 0.9, cells }];
+      }
+      return [];
+    }
+    case 'line': {
+      // one bomb after another, marching from the boss towards you
+      // (it hops over pillars; tries the other axis when that line has no room)
+      const horiz = Math.abs(px - bx) >= Math.abs(py - by);
+      for (const h of [horiz, !horiz]) {
+        const dx = h ? Math.sign(px - bx) || 1 : 0, dy = h ? 0 : Math.sign(py - by) || 1, out = [];
+        let last = -9;
+        for (let k = 1, x = bx + dx, y = by + dy; k <= (enraged ? 10 : 8) && inside(x, y); k++, x += dx, y += dy)
+          if (free(x, y) && k - last >= 2) { out.push({ k: 'bombs', t: 0.6 + out.length * 0.3, cells: [idx(x, y)] }); last = k; }
+        if (out.length) return out;
+      }
+      return [];
+    }
+    case 'breath': {
+      const cells = new Set(), row = enraged || Math.random() < 0.5, col = enraged || !row;
+      if (row) for (let x = 1; x < W - 1; x++) if (open(x, py)) cells.add(idx(x, py));
+      if (col) for (let y = 1; y < H - 1; y++) if (open(px, y)) cells.add(idx(px, y));
+      return [{ k: 'fire', t: 1.0, cells: [...cells] }];
+    }
+    case 'diag': {
+      const cells = new Set([idx(px, py)]);
+      for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) for (let x = px + dx, y = py + dy; open(x, y); x += dx, y += dy) cells.add(idx(x, y));
+      return [{ k: 'fire', t: 1.0, cells: [...cells] }];
+    }
+    case 'meteor': {
+      // fireballs land one after another near the players
+      const out = [];
+      for (let k = 0; k < (enraged ? 6 : 4); k++) {
+        const q = pick(targets), cx = Math.round(q.x) + Math.floor(Math.random() * 3) - 1, cy = Math.round(q.y) + Math.floor(Math.random() * 3) - 1;
+        out.push({ k: 'fire', t: 0.9 + k * 0.45, cells: square(cx, cy, 1) });
+      }
+      return out;
+    }
+    case 'slam': {
+      const cells = new Set();
+      for (const q of targets.slice().sort(() => Math.random() - 0.5).slice(0, enraged ? 3 : 2)) for (const c of square(Math.round(q.x), Math.round(q.y), 1)) cells.add(c);
+      return [{ k: 'slam', t: 1.0, cells: [...cells] }];
+    }
+    case 'quake': {
+      // shock rings spreading out of the golem
+      const out = [];
+      for (let R = 2; R <= (enraged ? 5 : 4); R++) {
+        const cells = [];
+        for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (Math.max(Math.abs(dx - 0.5), Math.abs(dy - 0.5)) === R - 0.5 && open(bx + dx, by + dy)) cells.push(idx(bx + dx, by + dy));
+        out.push({ k: 'fire', t: 0.7 + (R - 2) * 0.35, cells });
+      }
+      return out;
+    }
+    case 'rocks': {
+      // rocks fall (they hurt), then stay as boxes
+      const cells = new Set();
+      for (const q of targets) for (const c of near(q, enraged ? 4 : 3, 3)) cells.add(c);
+      return [{ k: 'fire', t: 1.0, cells: [...cells] }, { k: 'rocks', t: 1.6, cells: [...cells] }];
+    }
+    case 'cross': {
+      const cells = new Set(), len = enraged ? 7 : 5;
+      for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) for (const [dx, dy] of DIRS)
+        for (let r = 0; r <= len; r++) { const x = bx - 1 + ox + dx * r, y = by - 1 + oy + dy * r; if (!open(x, y)) break; cells.add(idx(x, y)); }
+      return [{ k: 'fire', t: 0.8, cells: [...cells] }];
+    }
+    case 'blink': {
+      // vanish, land two steps from you, burst around the landing spot
+      const dx = Math.random() < 0.5 ? -2.5 : 2.5, dy = Math.random() < 0.5 ? -1.5 : 1.5;
+      const tx = clampB(p.x + dx, W), ty = clampB(p.y + dy, H);
+      const cells = [];
+      for (let y = Math.round(ty - 0.5) - 1; y <= Math.round(ty + 0.5) + 1; y++) for (let x = Math.round(tx - 0.5) - 1; x <= Math.round(tx + 0.5) + 1; x++) if (open(x, y)) cells.push(idx(x, y));
+      return [{ k: 'blink', t: 0.6, cells: [], to: [tx, ty] }, { k: 'fire', t: 1.4, cells }];
+    }
+    case 'haunt': {
+      const cells = [];
+      for (let k = 0; k < (enraged ? 4 : 3); k++) { const i = freeCell(g, 3); if (i >= 0 && !cells.includes(i)) cells.push(i); }
+      return [{ k: 'summon', t: 0.9, cells }];
+    }
+  }
+  return [];
+}
+function doWave(g, b, w) {
+  if (w.k === 'bombs') {
+    for (const i of w.cells) {
       if (isWallish(g.grid[i]) || g.bombs.some(o => o.i === i)) continue;
       const bomb = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: 1.4, r: b.ph === 2 ? 3 : 2, owner: '@' };
       g.bombs.push(bomb);
       for (const q of g.players) if (q.alive && Math.hypot(q.x - bomb.fx, q.y - bomb.fy) < 0.95) q.pass.push(bomb.id);
     }
-  } else for (const i of a.cells) blast(g, i);
-  if (a.k === 'slam') for (let k = 0; k < (b.ph === 2 ? 3 : 2); k++) { const i = freeCell(g, 3); if (i >= 0) addMob(g, 'slime', i); }
+  } else if (w.k === 'fire' || w.k === 'slam') {
+    for (const i of w.cells) blast(g, i);
+    if (w.k === 'slam') for (let k = 0; k < (b.ph === 2 ? 3 : 2); k++) { const i = freeCell(g, 3); if (i >= 0) addMob(g, 'slime', i); }
+  } else if (w.k === 'rocks') {
+    for (const i of w.cells) {
+      const x = i % W, y = (i / W) | 0;
+      if (g.grid[i] !== '.' || g.bombs.some(o => o.i === i) || g.players.some(q => q.alive && Math.abs(q.x - x) < .8 && Math.abs(q.y - y) < .8) || g.mobs.some(m => cellOf(m) === i)) continue;
+      g.grid[i] = 'x'; g.hidden[i] = Math.random() < 0.2 ? rollItem() : '';
+    }
+  } else if (w.k === 'blink') { b.x = w.to[0]; b.y = w.to[1]; b.vis = true; b.visT = 4; }
+  else if (w.k === 'summon') { for (const i of w.cells) if (g.grid[i] === '.') addMob(g, 'ghost', i); }
 }
 function stepBoss(g, dt) {
   const b = g.boss;
@@ -339,7 +422,12 @@ function stepBoss(g, dt) {
     break;
   }
   if (b.vis) for (const p of g.players) if (p.team === 0 && Math.abs(p.x - b.x) < 1.25 && Math.abs(p.y - b.y) < 1.25) hurt(g, p, '@');
-  if (b.act) { if ((b.act.t -= dt) <= 0) { doAttack(g, b); b.act = null; b.rest = 1.2; } return; }
+  if (b.act) {
+    for (const w of b.act.waves) if ((w.t -= dt) <= 0) { doWave(g, b, w); w.done = true; }
+    b.act.waves = b.act.waves.filter(w => !w.done);
+    if (!b.act.waves.length) { b.act = null; b.rest = 1.0; }
+    return;
+  }
   if (b.rest > 0) { b.rest -= dt; return; }
   const p = nearestPlayer(g, b.x, b.y);
   if (p && b.vis) {
@@ -413,7 +501,7 @@ function regrowBoxes(g) {
     const x = i % W, y = (i / W) | 0;
     if (g.players.some(p => Math.abs(p.x - x) + Math.abs(p.y - y) <= 2) || g.bombs.some(b => b.i === i)) continue;
     g.grid[i] = 'x';
-    g.hidden[i] = Math.random() < 0.35 ? pick(['b', 'f', 's', 'h']) : '';
+    g.hidden[i] = Math.random() < 0.35 ? rollItem() : '';
     room--;
   }
 }
@@ -549,7 +637,8 @@ function pveSnapshot(g) {
   return {
     mb: g.mobs.map(m => [m.id, MOB_KINDS[m.k].code, Math.round(m.x * 100), Math.round(m.y * 100), m.dir, m.hp, m.hitT > 0 ? 1 : 0]),
     bo: b ? [BOSS_KINDS.indexOf(b.k), Math.round(b.x * 100), Math.round(b.y * 100), b.hp, b.max, b.ph, b.vis ? 1 : 0, b.hitT > 0 ? 1 : 0] : null,
-    wn: b && b.act ? b.act.cells : [],
+    // warnings show for the waves about to land (a long chain shows step by step)
+    wn: b && b.act ? [...new Set(b.act.waves.filter(w => w.t <= 1.1 && w.k !== 'rocks').flatMap(w => w.cells))] : [],
     sw: g.spawns.map(s => s.i),
     wv: g.wave || 0, brk: g.mode === 'v' && g.wave ? Math.ceil(g.brk || 0) : 0,
     stg: g.stage || 0, sr: g.stars || 0,

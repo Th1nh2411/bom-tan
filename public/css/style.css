@@ -398,3 +398,9 @@ button.mode-row:hover{border-color:#5b8fc7;background:#2a2a2a}
 button.map-chip{cursor:pointer}
 button.map-chip:hover{border-color:#5b8fc7;color:var(--ink)}
 .map-chip.on{border-color:#5b8fc7;background:#2c5d8a40;color:#fff;font-weight:600}
+/* bomb skins in the "Bạn" menu */
+.skins{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
+.skin{font:inherit;font-size:10.5px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 2px;border:1px solid #3c3c3c;border-radius:6px;background:#1f1f1f;color:var(--soft);cursor:pointer;line-height:1.2;text-align:center}
+.skin canvas{width:32px;height:32px}
+.skin:hover{border-color:#5b8fc7}
+.skin[aria-pressed="true"]{border-color:#5b8fc7;background:#2c5d8a33;color:#fff}

@@ -86,18 +86,22 @@ test('boss: takes hits from player bombs only, gets angry at half health, and th
   assert.ok(p.dmg >= 3);
 });
 
-test('boss attacks warn first, then land', () => {
+test('boss attacks: every move of every boss warns first, then lands', () => {
   const e = loadEngine();
-  for (const kind of ['king', 'dragon', 'golem', 'wraith']) {
-    const g = coop(e, 'b', 1, { boss: kind });
-    const p = g.players[0];
-    p.inv = 999;
-    g.boss.cd = 0; g.boss.vis = true; g.boss.visT = 99;
-    step(e, g, 0.02);
-    assert.ok(g.boss.act && g.boss.act.cells.length, kind + ' warns');
-    assert.deepEqual(e.snapshot(g, {}).wn, g.boss.act.cells);
-    step(e, g, 1.1);
-    assert.ok(g.bombs.some(o => o.owner === '@') || g.flames.size || g.burn.size || g.mobs.length, kind + ' lands');
+  for (const kind of ['king', 'dragon', 'golem', 'wraith']) for (const move of e.BOSS_MOVES[kind]) for (const ph of [1, 2]) {
+    const g = coop(e, 'b', 2, { boss: kind });
+    for (const p of g.players) p.inv = 999;
+    const b = g.boss;
+    b.ph = ph; b.vis = true; b.visT = 99; b.cd = 99;
+    const waves = e.bossMove(g, b, move, g.players);
+    assert.ok(waves.length && waves.some(w => w.cells.length || w.k === 'blink'), `${kind} ${move}: nothing to do`);
+    b.act = { waves };
+    const before = JSON.stringify([g.bombs.length, g.mobs.length, g.grid.join(''), b.x, b.y]);
+    let warned = false;
+    for (let t = 0; t < 5 && b.act; t += 1 / 60) { e.stepGame(g, {}, 1 / 60, {}); if (b.act && e.snapshot(g, {}).wn.length) warned = true; }
+    assert.ok(warned || move === 'blink', `${kind} ${move}: no warning`);
+    const landed = g.flames.size || g.burn.size || JSON.stringify([g.bombs.length, g.mobs.length, g.grid.join(''), b.x, b.y]) !== before;
+    assert.ok(landed, `${kind} ${move}: nothing landed`);
   }
 });
 

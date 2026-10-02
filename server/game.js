@@ -33,6 +33,7 @@ export function newRoomGame() {
     pub: false,                                   // listed in the public room list
     stage: 1, unlocked: 1,                        // campaign: start stage, and the furthest stage reached here
     map: 'random',                                // a MAPS id or 'random' (the campaign has its own maps)
+    events: true,                                 // mid-round events (dark, ice, max range)
     body: null, bodyStr: '', grid: ''   // the last snapshot sent: diffs are made against it
   };
 }
@@ -85,7 +86,7 @@ function startRound(r) {
     let color = c.p.c | 0;
     if (color < 0 || color > 7 || taken.has(color)) color = [0, 1, 2, 3, 4, 5, 6, 7].find(k => !taken.has(k));
     taken.add(color);
-    return { id, uid: c.by || null, name: nameOf(c), color, team: teamOf(c), hat: hatOf(c) };
+    return { id, uid: c.by || null, name: nameOf(c), color, team: teamOf(c), hat: hatOf(c), skin: c.p.bs | 0 };
   });
   if (gs.mode === 't') {
     for (const s of slots) if (s.team < 0) {
@@ -98,7 +99,7 @@ function startRound(r) {
     slots = [];
     for (let k = 0; k < Math.max(t0.length, t1.length); k++) { if (t0[k]) slots.push(t0[k]); if (t1[k]) slots.push(t1[k]); }
   }
-  gs.g = E.newGame(slots, gs.mode === 't', { mode: gs.mode, stage: gs.stage, map: gs.map });
+  gs.g = E.newGame(slots, gs.mode === 't', { mode: gs.mode, stage: gs.stage, map: gs.map, events: gs.events });
   gs.gw = E.W; gs.gh = E.H; gs.pz = false; gs.missing.clear(); gs.startAt = 0;
 }
 
@@ -153,7 +154,7 @@ export function refresh(r) {
   if (gs.kicked.size) raw.kk = [...gs.kicked];
   raw.ow = activeOwner(r) || '';
   raw.pb = gs.pub ? 1 : 0;
-  if (!gs.g) { raw.rd = [...gs.ready]; raw.sa = gs.startIn; raw.cs = gs.stage; raw.cu = gs.unlocked; raw.mp = gs.map; }
+  if (!gs.g) { raw.rd = [...gs.ready]; raw.sa = gs.startIn; raw.cs = gs.stage; raw.cu = gs.unlocked; raw.mp = gs.map; raw.evs = gs.events ? 1 : 0; }
   // the grid travels on its own and only when it changes
   const { g: grid, ...body } = raw;
   const bodyStr = JSON.stringify(body);
@@ -216,6 +217,7 @@ export function command(r, me, m) {
   }
   if (me !== activeOwner(r)) return;
   if (m.c === 'mode') { if (!gs.g && MODES.includes(m.m)) gs.mode = m.m; }
+  else if (m.c === 'events') { if (!gs.g) gs.events = !!m.on; }
   else if (m.c === 'map') { if (!gs.g && (m.map === 'random' || E.MAP_IDS.includes(m.map))) gs.map = m.map; }
   else if (m.c === 'stage') { const n = m.n | 0; if (!gs.g && n >= 1 && n <= gs.unlocked) gs.stage = n; }
   else if (m.c === 'start') { if (!gs.g) { gs.ready.add(me); startRound(r); } }   // the owner can start without waiting for everyone

@@ -14,6 +14,12 @@ Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 ngườ
 - Đi ải: 10 ải, ải 5 và 10 là boss; diệt hết quái rồi tìm cửa ra giấu dưới thùng.
 - 5 loại quái: nhầy, dơi, ma (xuyên thùng), quỷ con (né bom), giáp sắt (3 máu).
 
+**Sự kiện giữa ván** (chủ phòng bật/tắt): tắt đèn, mặt băng (buông phím vẫn trượt), bom max tầm. Mỗi 20–30 giây, báo trước 3 giây, kéo dài 10 giây.
+
+**Vật phẩm đổi hình vụ nổ:** lửa chéo (bay qua cột), nổ vuông, lửa xuyên thùng. **Kiểu bom** chọn trong menu Bạn: bom cổ điển, bóng nước, pháo hoa, bí ngô (lửa đổi theo).
+
+**Boss** có 3 đòn mỗi con, đánh thành nhiều đợt có báo trước (mưa bom, vòng bom, hàng bom; phun lửa, lửa chéo, mưa thiên thạch; dậm đất, sóng chấn động, đá rơi; chữ thập, dịch chuyển áp sát, gọi ma); khi nổi giận đôi khi tung 2 đòn cùng lúc.
+
 **Map:** Cổ điển, Đấu trường, Ngã tư, Bốn phòng, Pháo đài, hoặc Ngẫu nhiên; chủ phòng chọn trong sảnh. Đi ải có map riêng cho từng ải.
 
 **Luật chơi:**

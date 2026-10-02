@@ -89,6 +89,21 @@ function renderMe() {
   if ($('meName').textContent !== shown) $('meName').textContent = shown;
   if ($('meBtnName').textContent !== shown) $('meBtnName').textContent = shown;
 }
+// bomb skins in the "Bạn" menu: a small preview of each
+function renderSkins() {
+  const box = $('skins'); box.textContent = '';
+  BOMB_SKINS.forEach((name, k) => {
+    const b = document.createElement('button');
+    b.className = 'skin'; b.title = name; b.setAttribute('aria-label', name); b.setAttribute('aria-pressed', k === mySkin ? 'true' : 'false');
+    const cv2 = document.createElement('canvas'); cv2.width = cv2.height = 64;
+    const g = cv2.getContext('2d'); g.scale(2, 2); drawBombSkin(g, k, 16, 18, 9, 28, 0);
+    const nm = document.createElement('span'); nm.textContent = name;
+    b.append(cv2, nm);
+    b.onclick = () => { mySkin = k; store('bt-bomb', String(k)); renderSkins(); pushMe(); };
+    box.appendChild(b);
+  });
+}
+renderSkins();
 // "Bạn" menu in the title bar: who you are, sign out, your colour
 function setMeMenu(open) { $('mePanel').hidden = !open; $('meBtn').setAttribute('aria-expanded', open ? 'true' : 'false'); }
 $('meBtn').onclick = () => setMeMenu($('mePanel').hidden);
@@ -205,6 +220,7 @@ function updateStatus() {
     note += ` · còn ${mmss(s.zt)} · ${s.pl.length - zs} người, ${zs} zombie`;
   }
   const meP = s && s.ph === 'play' ? s.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer)) : null;
+  if (meP && meP.alive && meP.shape) note += ' · bom: ' + ['', 'chéo', 'vuông', 'xuyên'][meP.shape];
   if (meP && meP.alive && meP.ck) note += ` · bị nguyền: ${CURSE_NAMES[meP.ck]} ${meP.ct}s`;
   if (canGhost()) {
     const wait = Math.ceil((ghostReadyAt - performance.now()) / 1000);

@@ -54,11 +54,16 @@ function predictStep(dt) {
   let d = ctlDir(ctlA);
   if (me.ck === 1) d = { ...d, dx: -d.dx, dy: -d.dy };   // reversed-controls curse
   if (me.zb === 2) d = { ...d, dx: 0, dy: 0 };             // stunned zombie
+  // ice event: keep sliding the way you last went until something stops you
+  if (snap.ev === 'ice') { if (d.dx || d.dy) pred.slide = [d.dx, d.dy]; else if (pred.slide) d = { ...d, dx: pred.slide[0], dy: pred.slide[1] }; }
+  else pred.slide = null;
+  const ox = pred.x, oy = pred.y;
   if (d.dx || d.dy) {
     pred.dir = d.dx > 0 ? 1 : d.dx < 0 ? 3 : d.dy > 0 ? 2 : 0;
     tryMove(view, pp, d.dx, d.dy, speedOf(me) * dt);
     if (portalCheck(pp)) { myTp++; pred.tpT = 1; sfx.teleport(); }
   }
+  if (pred.slide && pp.x === ox && pp.y === oy) pred.slide = null;
   pred.x = pp.x; pred.y = pp.y; pred.lock = pp.lock;
   const ni = idx(Math.round(pred.x), Math.round(pred.y));
   pred.pass = pp.pass.filter(i => i === ni && pred.bombs.has(i));
@@ -74,8 +79,8 @@ function predictStep(dt) {
 }
 
 /* ---------- local mode ---------- */
-function localSlots() { return [{ id: 'p1', name: 'P1 (WASD)', color: 0 }, { id: 'p2', name: 'P2 (Mũi tên)', color: 1 }]; }
-function startLocal() { mode = 'local'; scores = {}; pred = null; practice = null; localGame = newGame(localSlots(), false, { map: 'random' }); snap = null; updateUI(); }
+function localSlots() { return [{ id: 'p1', name: 'P1 (WASD)', color: 0, skin: mySkin }, { id: 'p2', name: 'P2 (Mũi tên)', color: 1, skin: mySkin ? 0 : 1 }]; }
+function startLocal() { mode = 'local'; scores = {}; pred = null; practice = null; localGame = newGame(localSlots(), false, { map: 'random', events: true }); snap = null; updateUI(); }
 function stopLocal() {
   mode = 'online'; localGame = null; snap = null;
   if (net && net.ph !== 'lobby') { setDims(net.gw, net.gh); setSnap(net); } else startPractice();
@@ -85,12 +90,12 @@ function stopLocal() {
 /* ---------- practice field: outside rooms and between rounds you walk and bomb on your own board ---------- */
 let practiceDeadT = 0;
 function startPractice() {
-  practice = newGame([{ id: myPeer || 'me', name: myName, color: myColor, hat: myHat }], false, { mode: 'p', map: 'random' });
+  practice = newGame([{ id: myPeer || 'me', name: myName, color: myColor, hat: myHat, skin: mySkin }], false, { mode: 'p', map: 'random' });
   practice.ph = 'play'; practiceDeadT = 0; pred = null;
 }
 function stepPractice(dt) {
   const me = practice.players[0];
-  me.name = myName; me.color = myColor; me.hat = myHat;
+  me.name = myName; me.color = myColor; me.hat = myHat; me.skin = mySkin;
   if (!coverLocal && !(net && net.pz)) stepGame(practice, { [me.id]: ctlDir(ctlA) }, dt, {});
   if (!me.alive && (practiceDeadT += dt) > 1.2) startPractice();   // blew yourself up: a fresh field
   setSnap(sanitizeSnap(snapshot(practice, {})));

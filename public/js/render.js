@@ -6,7 +6,7 @@ function simulate(now) {
   if (mode === 'local' && localGame) {
     const li = { p1: ctlDir(ctlA), p2: ctlDir(ctlB) };
     if (localGame.pz) holdInputs(localGame, li); else stepGame(localGame, li, dt, scores);
-    if (localGame.ph === 'end' && localGame.timer <= 0) localGame = newGame(localSlots(), false, { map: 'random' });
+    if (localGame.ph === 'end' && localGame.timer <= 0) localGame = newGame(localSlots(), false, { map: 'random', events: true });
     setSnap(sanitizeSnap(snapshot(localGame, scores)));
   } else {
     if (mode === 'online' && !practice && (!ROOM_ID || !net || net.ph === 'lobby')) startPractice();
@@ -90,7 +90,7 @@ function drawTile(c, x, y, now) {
     ctx.strokeStyle = c === 'c' ? '#d0606e' : '#181818'; ctx.lineWidth = Math.max(1, T * (c === 'c' ? .08 : .05)); ctx.stroke();
     ctx.font = `${Math.round(T * .44)}px ${EMOJI_FONT}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤', h: '🛡️', c: '💀' }[c], px + T / 2, py + T / 2 + bob + T * .02);
+    fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤', h: '🛡️', c: '💀', d: '✖️', o: '🔳', p: '🗡️' }[c], px + T / 2, py + T / 2 + bob + T * .02);
   }
 }
 
@@ -144,13 +144,8 @@ function draw(dt) {
   if (!s) return;
   drawPveFloor(s, now);
 
-  for (const i of s.fl) {
-    const x = i % W, y = (i / W) | 0, px = x * T, py = y * T;
-    const flick = .85 + Math.sin(now / 40 + i) * .08;
-    ctx.fillStyle = '#c08a62'; rr(px + T * .04, py + T * .04, T * .92, T * .92, T * .3); ctx.fill();
-    ctx.fillStyle = '#bfa377'; rr(px + T * (.5 - .32 * flick), py + T * (.5 - .32 * flick), T * .64 * flick, T * .64 * flick, T * .22); ctx.fill();
-    ctx.fillStyle = '#e6ddc8'; ctx.beginPath(); ctx.arc(px + T / 2, py + T / 2, T * .15 * flick, 0, 7); ctx.fill();
-  }
+  if (s.ev === 'ice') drawIce(s, now);
+  for (const i of s.fl) drawFlame(i, s.fsk.get(i) || 0, now);
 
   const seenB = new Set();
   for (const b of s.bm) {
@@ -160,14 +155,13 @@ function draw(dt) {
     const k = Math.min(1, dt * 25); d.x += (b.x - d.x) * k; d.y += (b.y - d.y) * k;
     const cx = d.x * T + T / 2, cy = d.y * T + T / 2;
     const pulse = 1 + Math.sin(now / (b.t < 8 ? 60 : 140)) * .06;
-    const r = T * .32 * pulse;
     ctx.fillStyle = '#00000066'; ctx.beginPath(); ctx.ellipse(cx, cy + T * .3, T * .3, T * .08, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#111111'; ctx.beginPath(); ctx.arc(cx, cy + T * .04, r, 0, 7); ctx.fill(); ctx.strokeStyle = '#3c3c3c'; ctx.lineWidth = Math.max(1, T * .03); ctx.stroke();
-    ctx.fillStyle = '#ffffff55'; ctx.beginPath(); ctx.arc(cx - r * .35, cy - r * .3, r * .25, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#5a4a33'; ctx.lineWidth = Math.max(1.5, T * .06);
-    ctx.beginPath(); ctx.moveTo(cx + r * .4, cy - r * .7); ctx.quadraticCurveTo(cx + r * .9, cy - r * 1.3, cx + r * .6, cy - r * 1.5); ctx.stroke();
-    ctx.fillStyle = (now / 80 | 0) % 2 ? '#d6c28e' : '#b07a52';
-    ctx.beginPath(); ctx.arc(cx + r * .6, cy - r * 1.5, T * .07, 0, 7); ctx.fill();
+    drawBombSkin(ctx, b.sk, cx, cy + T * .04, T * .32 * pulse, T, now);
+    if (b.sh) {
+      // the blast shape, so you can read what is coming: ✕ diagonal, ■ square, ➤ pierce
+      ctx.font = `700 ${Math.round(T * .26)}px ${UI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff'; ctx.fillText(['', '✕', '■', '➤'][b.sh], cx, cy + T * .06);
+    }
   }
   for (const id of [...bombDisp.keys()]) if (!seenB.has(id)) bombDisp.delete(id);
 
@@ -250,8 +244,114 @@ function draw(dt) {
     ctx.font = `600 ${Math.max(10, Math.round(T * .3))}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#c77f8c'; ctx.fillText('♥'.repeat(Math.min(p.hp, 8)), cx, cy + T * .5);
   }
+  if (s.ev === 'dark') drawDarkness(s, now);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // HUD: no screen shake
   drawPveHud(s, now);
+  drawEventHud(s);
+}
+
+/* ---------- bomb skins: the bomb and the fire it makes ---------- */
+const BOMB_SKINS = ['Bom cổ điển', 'Bóng nước', 'Pháo hoa', 'Bí ngô'];
+// g: any 2d context (the board, or a small preview), (cx, cy): centre, r: body radius, t: cell size
+function drawBombSkin(g, sk, cx, cy, r, t, now) {
+  const lw = Math.max(1, t * .03), spark = (now / 80 | 0) % 2;
+  g.save();
+  if (sk === 1) {            // water balloon
+    const wob = 1 + Math.sin(now / 160) * .05;
+    g.fillStyle = '#6fa8dc'; g.strokeStyle = '#3d6f9e'; g.lineWidth = lw;
+    g.beginPath(); g.ellipse(cx, cy + r * .1, r * .95 / wob, r * 1.05 * wob, 0, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#3d6f9e'; g.beginPath(); g.moveTo(cx - r * .18, cy - r * 1.1); g.lineTo(cx + r * .18, cy - r * 1.1); g.lineTo(cx, cy - r * .85); g.closePath(); g.fill();
+    g.fillStyle = '#ffffff88'; g.beginPath(); g.ellipse(cx - r * .35, cy - r * .3, r * .18, r * .3, -.4, 0, 7); g.fill();
+  } else if (sk === 2) {     // firework rocket
+    g.fillStyle = '#c75a64'; g.strokeStyle = '#6e2a32'; g.lineWidth = lw;
+    rrOn(g, cx - r * .55, cy - r * .7, r * 1.1, r * 1.6, r * .15); g.fill(); g.stroke();
+    g.fillStyle = '#f0e6c8'; g.fillRect(cx - r * .55, cy - r * .25, r * 1.1, r * .2); g.fillRect(cx - r * .55, cy + r * .3, r * 1.1, r * .2);
+    g.fillStyle = '#d6b45e'; g.beginPath(); g.moveTo(cx - r * .65, cy - r * .7); g.lineTo(cx + r * .65, cy - r * .7); g.lineTo(cx, cy - r * 1.35); g.closePath(); g.fill(); g.stroke();
+    g.fillStyle = spark ? '#ffe08a' : '#ff9a5a'; g.beginPath(); g.arc(cx, cy + r * 1.05, t * .07, 0, 7); g.fill();
+  } else if (sk === 3) {     // pumpkin
+    g.fillStyle = '#d9822b'; g.strokeStyle = '#8a4a14'; g.lineWidth = lw;
+    for (const ox of [-.45, .45, 0]) { g.beginPath(); g.ellipse(cx + r * ox, cy + r * .1, r * .62, r * .9, 0, 0, 7); g.fill(); g.stroke(); }
+    g.fillStyle = '#5c7a3a'; g.fillRect(cx - r * .1, cy - r * 1.15, r * .22, r * .4);
+    g.fillStyle = '#2a1a0a'; g.beginPath(); g.moveTo(cx - r * .45, cy - r * .05); g.lineTo(cx - r * .2, cy - r * .3); g.lineTo(cx - r * .05, cy - r * .05); g.moveTo(cx + r * .45, cy - r * .05); g.lineTo(cx + r * .2, cy - r * .3); g.lineTo(cx + r * .05, cy - r * .05); g.fill();
+  } else {                   // classic bomb
+    g.fillStyle = '#111111'; g.strokeStyle = '#3c3c3c'; g.lineWidth = lw;
+    g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#ffffff55'; g.beginPath(); g.arc(cx - r * .35, cy - r * .3, r * .25, 0, 7); g.fill();
+    g.strokeStyle = '#5a4a33'; g.lineWidth = Math.max(1.5, t * .06);
+    g.beginPath(); g.moveTo(cx + r * .4, cy - r * .7); g.quadraticCurveTo(cx + r * .9, cy - r * 1.3, cx + r * .6, cy - r * 1.5); g.stroke();
+    g.fillStyle = spark ? '#d6c28e' : '#b07a52'; g.beginPath(); g.arc(cx + r * .6, cy - r * 1.5, t * .07, 0, 7); g.fill();
+  }
+  g.restore();
+}
+function rrOn(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+const FLAME_COLORS = [['#c08a62', '#bfa377', '#e6ddc8'], ['#4f86b8', '#8ec0e8', '#eaf6ff'], ['#3a2a4a', '#6a4a8a', '#fff2c8'], ['#7d5a9d', '#e0904a', '#ffe0a8']];
+function drawFlame(i, sk, now) {
+  const x = i % W, y = (i / W) | 0, px = x * T, py = y * T, [a, b, c] = FLAME_COLORS[sk] || FLAME_COLORS[0];
+  const flick = .85 + Math.sin(now / 40 + i) * .08;
+  ctx.fillStyle = a; rr(px + T * .04, py + T * .04, T * .92, T * .92, T * .3); ctx.fill();
+  ctx.fillStyle = b; rr(px + T * (.5 - .32 * flick), py + T * (.5 - .32 * flick), T * .64 * flick, T * .64 * flick, T * .22); ctx.fill();
+  if (sk === 2) {
+    // firework: coloured sparks popping
+    const cols = ['#ff7a8a', '#ffe08a', '#8ae0ff', '#b8ff8a', '#e08aff'];
+    for (let k = 0; k < 5; k++) {
+      const a2 = (i * 37 + k * 72 + now / 6) % 360 / 57.3, d = T * (.12 + ((now / 300 + k * .2 + i) % 1) * .3);
+      ctx.fillStyle = cols[(k + i) % 5]; ctx.beginPath(); ctx.arc(px + T / 2 + Math.cos(a2) * d, py + T / 2 + Math.sin(a2) * d, T * .05, 0, 7); ctx.fill();
+    }
+  } else if (sk === 1) {
+    // water: a few droplets
+    ctx.fillStyle = c;
+    for (let k = 0; k < 3; k++) { const a2 = i * 2.1 + k * 2.09 + now / 400; ctx.beginPath(); ctx.arc(px + T / 2 + Math.cos(a2) * T * .22, py + T / 2 + Math.sin(a2) * T * .22, T * .06, 0, 7); ctx.fill(); }
+  } else { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(px + T / 2, py + T / 2, T * .15 * flick, 0, 7); ctx.fill(); }
+}
+
+/* ---------- mid-round events ---------- */
+const EVENT_LABELS = { dark: '🌑 Tắt đèn', ice: '❄️ Mặt băng', max: '💥 Bom max tầm' };
+function drawIce(s, now) {
+  ctx.fillStyle = 'rgba(140,190,235,.13)'; ctx.fillRect(0, 0, W * T, H * T);
+  ctx.strokeStyle = 'rgba(230,245,255,.25)'; ctx.lineWidth = Math.max(1, T * .03);
+  ctx.beginPath();
+  for (let i = 0; i < W * H; i++) if (s.g[i] === '.' && (i * 7) % 5 === 0) { const x = (i % W) * T, y = ((i / W) | 0) * T; ctx.moveTo(x + T * .2, y + T * .7); ctx.lineTo(x + T * .5, y + T * .4); }
+  ctx.stroke();
+}
+// darkness: you see around yourself (and your team), lit fuses and fire; anyone watching sees everything
+let darkCv = null;
+function drawDarkness(s, now) {
+  const myIds = mode === 'local' ? ['p1', 'p2'] : [myPeer];
+  const me = s.pl.find(p => myIds.includes(p.id));
+  if (!me || (!me.alive && !me.downed)) return;
+  const ally = s.md !== 's' && s.md !== 'z' && s.md !== 'p';
+  const lights = [];
+  for (const p of s.pl) {
+    if (!p.alive && !p.downed) continue;
+    if (!(myIds.includes(p.id) || (ally && p.team === me.team))) continue;
+    const d = myIds.includes(p.id) && p.id === myPeer && pred ? pred : disp.get(p.id) || p;
+    lights.push([d.x, d.y, 2.6]);
+  }
+  for (const b of s.bm) lights.push([b.x, b.y, 0.9]);
+  for (const i of s.fl) lights.push([i % W, (i / W) | 0, 0.8]);
+  const w = W * T, h = H * T;
+  if (!darkCv) darkCv = document.createElement('canvas');
+  if (darkCv.width !== Math.ceil(w) || darkCv.height !== Math.ceil(h)) { darkCv.width = Math.ceil(w); darkCv.height = Math.ceil(h); }
+  const g = darkCv.getContext('2d');
+  g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, w, h);
+  g.fillStyle = 'rgba(6,6,10,.94)'; g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = 'destination-out';
+  for (const [x, y, R] of lights) {
+    const cx = x * T + T / 2, cy = y * T + T / 2, rad = R * T;
+    const gr = g.createRadialGradient(cx, cy, rad * .35, cx, cy, rad);
+    gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, rad, 0, 7); g.fill();
+  }
+  ctx.drawImage(darkCv, 0, 0, w, h);
+}
+function drawEventHud(s) {
+  if (s.ph !== 'play' || (!s.ev && !s.ew)) return;
+  const bw = W * T, fs = Math.max(11, Math.round(T * .3));
+  ctx.font = `600 ${fs}px ${UI_FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const text = s.ev ? `${EVENT_LABELS[s.ev]} · ${s.et}s` : `⚠ Sắp tới: ${EVENT_LABELS[s.ew]} · ${s.et}`;
+  const tw = ctx.measureText(text).width, x = T * .3, y = H * T - T * .5;
+  ctx.fillStyle = s.ev ? 'rgba(44,93,138,.92)' : 'rgba(150,110,40,.92)'; rr(x, y - fs * .85, tw + fs * 1.2, fs * 1.7, fs * .5); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.fillText(text, x + fs * .6, y);
 }
 
 /* ---------- co-op and boss modes: monsters, bosses, warnings, the exit, banners ---------- */

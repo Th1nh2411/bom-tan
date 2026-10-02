@@ -29,7 +29,7 @@ function renderRoomPanel() {
   const body = $('roomBody');
   const copied = performance.now() < copiedUntil;
   const key = JSON.stringify([ROOM_ID, mode, connected, kickedOut, roomFull, isLoggedIn(), myPeer, joined, copied, modeOpen,
-    net && [net.ph, net.md, net.mp, net.ow, net.sa, net.pb, net.cs, net.cu, net.rd, net.pl.map(p => p.id)]]);
+    net && [net.ph, net.md, net.mp, net.evs, net.ow, net.sa, net.pb, net.cs, net.cu, net.rd, net.pl.map(p => p.id)]]);
   if (key === roomKey) return;
   roomKey = key;
   const typing = body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'text' ? document.activeElement.value : null;
@@ -64,6 +64,7 @@ function renderRoomPanel() {
   const chips = el2('div', 'lob-chips');
   if (inRound()) chips.append(el2('span', 'lob-mode m-' + md, MODE_ICONS[md] + ' ' + MODE_INFO[md][0]));   // the lobby shows the full mode row instead
   if (net && net.pb) chips.append(el2('span', 'lob-pub', 'công khai'));
+  if (net && net.evs && !owner && net.ph === 'lobby') chips.append(el2('span', 'lob-pub', '⚡ có sự kiện'));
   if (owner) chips.append(el2('span', 'lob-own-chip', '★ bạn là chủ phòng'));
   body.append(chips);
 
@@ -134,6 +135,11 @@ function renderRoomPanel() {
         seg.append(b);
       }
       tools.append(seg);
+      const ev = el2('label', 'lob-switch');
+      ev.title = 'Tắt đèn, mặt băng, bom max tầm: mỗi 20-30 giây một lần';
+      const ec = el2('input'); ec.type = 'checkbox'; ec.checked = net.evs; ec.dataset.act = 'events';
+      ev.append(ec, el2('span', '', 'Sự kiện giữa ván'));
+      tools.append(ev);
       if (net.sa <= 0) tools.append(btn('lob-link sm', '▶ Bắt đầu ngay', 'start', 'Không đợi mọi người: ai đã sẵn sàng thì vào'));
       body.append(tools);
     }
@@ -369,6 +375,7 @@ $('plist').addEventListener('pointerdown', e => {
 $('roomBody').addEventListener('change', e => {
   const act = e.target.dataset.act;
   if (act === 'join') { joined = e.target.checked; pushMe(); }
+  else if (act === 'events') room.cmd({ c: 'events', on: e.target.checked });
 });
 $('roomBody').addEventListener('submit', e => {
   e.preventDefault();

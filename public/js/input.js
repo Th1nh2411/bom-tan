@@ -5,6 +5,8 @@ if (!(myColor >= 0 && myColor < 8)) myColor = Math.floor(Math.random() * 8);
 let myTeam = Number(store('bt-team') ?? NaN);
 if (!(myTeam === 0 || myTeam === 1)) myTeam = -1;
 let joined = true;
+let mySkin = Number(store('bt-bomb') ?? 0);   // bomb skin (BOMB_SKINS in render.js)
+if (!(mySkin >= 0 && mySkin < 4)) mySkin = 0;
 
 const swWrap = $('swatches');
 COLORS.forEach((c, k) => {

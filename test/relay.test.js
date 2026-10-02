@@ -85,6 +85,8 @@ test('controls drive the server game and are never relayed; the rest of presence
   const a = client('ctl', me), b = client('ctl', me);
   await Promise.all([a.ready, b.ready]);
   await until(a, g => g.ow === a.peer && g.pl.length === 2);
+  a.send({ t: 'cmd', c: 'map', map: 'classic' });   // the step below assumes the classic pillars
+  await until(a, g => g.mp === 'classic');
   a.send({ t: 'cmd', c: 'start' });
   const g0 = await until(b, g => g.ph === 'play', 5000);
   // spawns are on open cells with no boxes nearby, so a step away from the outer wall is always free

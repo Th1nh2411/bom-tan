@@ -28,7 +28,7 @@ function inputChanged() {
   if (room && mode === 'online') { const d = ctlDir(ctlA); room.presence({ dx: d.dx, dy: d.dy, b: d.b, bc: d.bc, sk: d.sk }, true).catch(() => {}); }
 }
 function pushMe() {
-  if (room) room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, li: isLoggedIn() ? 1 : null }).catch(() => {});
+  if (room) room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, li: isLoggedIn() ? 1 : null, bs: mySkin || null }).catch(() => {});
   renderList();
 }
 
@@ -207,7 +207,7 @@ function initNet() {
     onRoomChange();
   });
   const d = ctlDir(ctlA);
-  room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, li: isLoggedIn() ? 1 : null, dx: d.dx, dy: d.dy, b: d.b, bc: -1 });
+  room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, li: isLoggedIn() ? 1 : null, bs: mySkin || null, dx: d.dx, dy: d.dy, b: d.b, bc: -1 });
 }
 
 function peers() { return room ? room.peers() : []; }
@@ -226,6 +226,7 @@ function onRoomChange() {
 }
 
 const MODES = ['s', 't', 'z', 'h', 'v', 'b', 'c', 'p'];
+const EVENT_IDS = ['dark', 'ice', 'max'];
 const nums = (a, max, lim = 64) => Array.isArray(a) ? a.map(n => n | 0).filter(n => n >= 0 && n < max).slice(0, lim) : [];
 function sanitizeSnap(s) {
   if (!s || typeof s.g !== 'string' || !Array.isArray(s.pl)) return null;
@@ -244,7 +245,7 @@ function sanitizeSnap(s) {
       color, name: cleanName(a[5]) || 'Ẩn danh', dir: a[6] | 0, score: a[7] | 0,
       team, spd: Math.min(5, Math.max(0, a[9] | 0)), kick: !!a[10], shield: !!a[13],
       ck: Math.min(3, Math.max(0, a[14] | 0)), ct: Math.max(0, a[15] | 0), zb: Math.min(2, Math.max(0, a[16] | 0)), hat: HATS[a[17]] ? a[17] : '',
-      coins: Math.max(0, a[18] | 0), hp: Math.max(0, a[19] | 0), boss: a[20] === 1, maxB: a[21] | 0, fire: a[22] | 0
+      coins: Math.max(0, a[18] | 0), hp: Math.max(0, a[19] | 0), boss: a[20] === 1, maxB: a[21] | 0, fire: a[22] | 0, shape: (a[23] | 0) & 3, skin: (a[24] | 0) & 3
     };
   });
   const cells = lobby ? 0 : W * H;
@@ -252,8 +253,10 @@ function sanitizeSnap(s) {
   return {
     rid: s.rid | 0, md, gw: s.gw | 0, gh: s.gh | 0, mp: MAPS[s.mp] || s.mp === 'random' ? s.mp : 'classic',
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: lobby ? '' : s.g,
-    bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
+    bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5], sk: (b[6] | 0) & 3, sh: (b[7] | 0) & 3 })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
+    fsk: new Map(Array.isArray(s.fl) && Array.isArray(s.fs) ? s.fl.map((n, k) => [n | 0, (s.fs[k] | 0) & 3]) : []),
+    ev: EVENT_IDS.includes(s.ev) ? s.ev : '', ew: EVENT_IDS.includes(s.ew) ? s.ew : '', et: Math.max(0, s.et | 0), evs: s.evs === 1,
     pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb), ow: typeof s.ow === 'string' ? s.ow : '', pb: s.pb === 1,
     rd: Array.isArray(s.rd) ? s.rd.map(String).slice(0, 16) : [], sa: typeof s.sa === 'number' ? s.sa | 0 : -1,
     cs: Math.max(1, s.cs | 0), cu: Math.max(1, s.cu | 0),

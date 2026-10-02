@@ -66,7 +66,30 @@ function pickSpawns(n, open = () => true) {
   return out;
 }
 const FUSE = 2.4, FLAME_T = 0.55, COUNT_T = 2.5, END_T = 6, KICK_SPEED = 9, DOWN_T = 3, REVIVE_INV = 1.2, SHIELD_INV = 1, REVIVE_DIST = 0.75;
-const POWERS = 'bfskhc';   // h = shield: absorbs one hit, then 1s of invulnerability; c = curse (a bad item)
+const POWERS = 'bfskhcdop';   // h = shield: absorbs one hit, then 1s of invulnerability; c = curse (a bad item);
+// d, o, p change the shape of your blasts: diagonal X, a square around the bomb, a cross that pierces boxes
+const SHAPE_OF = { d: 'diag', o: 'square', p: 'pierce' }, SHAPES = ['plus', 'diag', 'square', 'pierce'];
+// what hides under a box: mostly power-ups, sometimes a blast shape, now and then a curse
+function rollItem() {
+  const r = Math.random();
+  return r < .24 ? 'b' : r < .48 ? 'f' : r < .61 ? 's' : r < .72 ? 'k' : r < .83 ? 'h' : r < .92 ? 'dop'[Math.floor(Math.random() * 3)] : 'c';
+}
+// Mid-round events (when the room has them on): every 20-30s one of these runs for EV_LEN seconds, after a
+// EV_WARN-second warning. dark: you only see around yourself (drawn by the browsers); ice: you keep sliding
+// until you hit something; max: every bomb blasts at full range.
+const EVENTS = { dark: 'Tắt đèn', ice: 'Mặt băng', max: 'Bom max tầm' }, EV_LEN = 10, EV_WARN = 3, MAX_R = 8;
+const nextEventIn = () => 20 + Math.random() * 10;
+function tickEvent(g, dt) {
+  if (!g.events) return;
+  if (g.ev) {
+    if ((g.evT -= dt) > 0) return;
+    g.ev = null; g.evNext = nextEventIn();
+    for (const p of g.players) p.slide = null;
+    return;
+  }
+  if (g.evWarn) { if ((g.evWarnT -= dt) <= 0) { g.ev = g.evWarn; g.evWarn = null; g.evT = EV_LEN; } return; }
+  if ((g.evNext -= dt) <= 0) { const ks = Object.keys(EVENTS); g.evWarn = ks[Math.floor(Math.random() * ks.length)]; g.evWarnT = EV_WARN; }
+}
 // curses (p.ck): 1 reversed controls, 2 slow, 3 drops bombs by itself. They last CURSE_T seconds and
 // jump to anyone the cursed player touches.
 const CURSE_T = 10, CURSE_NAMES = ['', 'đảo phím', 'chạy chậm', 'tự thả bom'];
@@ -108,7 +131,7 @@ function applyRule(g) {
 // opts.mode: 's' solo, 't' teams, 'z' zombie, or a co-op / boss mode from pve.js ('v' waves, 'b' boss,
 // 'c' campaign, 'h' boss hunt); teams stays for old callers. opts.rule: a DAILY_RULES key or ''.
 // opts.boxes: share of free cells that get a box (default .72); opts.stage: campaign stage;
-// opts.map: a MAPS id, 'random', or nothing for the classic board
+// opts.map: a MAPS id, 'random', or nothing for the classic board; opts.events: mid-round events on
 function newGame(slots, teams, opts = {}) {
   const gmode = opts.mode || (teams ? 't' : 's');
   teams = gmode === 't';
@@ -128,21 +151,22 @@ function newGame(slots, teams, opts = {}) {
     if (Math.random() < (opts.boxes ?? 0.72)) {
       grid[i] = 'x';
       if (opts.rule === 'curse' && Math.random() < 0.12) hidden[i] = 'c';
-      else if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.26 ? 'b' : r < 0.52 ? 'f' : r < 0.66 ? 's' : r < 0.78 ? 'k' : r < 0.90 ? 'h' : 'c'; }
+      else if (Math.random() < 0.38) hidden[i] = rollItem();
     }
   }
   const players = slots.map((s, k) => ({
     id: s.id, uid: s.uid || null, name: s.name, color: s.color, hat: s.hat || '', team: teams ? s.team : k,
     x: spawns[k][0], y: spawns[k][1], alive: true,
     maxB: 1, fire: 2, spd: 0, kick: false, shield: false, ck: 0, ct: 0, dir: 2, down: 0, downBy: null, inv: 0,
-    lastB: null, lastTp: null, pass: [], lock: -1
+    lastB: null, lastTp: null, pass: [], lock: -1, shape: 'plus', skin: Math.min(3, Math.max(0, s.skin | 0))
   }));
   if (gmode === 'z' && players.length >= 2) {
     const z = players[Math.floor(Math.random() * players.length)];
     z.zb = true; z.z0 = true;
   }
   const g = {
-    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode, map: mapId, rule: DAILY_RULES[opts.rule] ? opts.rule : '',
+    rid: Math.floor(Math.random() * 1e9), teams: !!teams, mode: gmode, map: mapId,
+    events: !!opts.events, ev: null, evNext: nextEventIn(), rule: DAILY_RULES[opts.rule] ? opts.rule : '',
     ph: 'count', timer: COUNT_T, grid, hidden, bombs: [], flames: new Map(), burn: new Map(),
     players, winner: null, winnerIds: [], kills: [], revives: [], bid: 0, justEnded: false
   };
@@ -230,40 +254,65 @@ function applyReported(g, p, inp, dt) {
   if (p.lock !== -1 && p.lock !== i) p.lock = -1;
 }
 
-function addFlame(g, i, owner) {
+// sk: the bomb skin the flame is drawn with (the first bomb to light a cell decides)
+function addFlame(g, i, owner, sk = 0) {
   let f = g.flames.get(i);
-  if (!f) { f = { t: 0, o: new Set() }; g.flames.set(i, f); }
+  if (!f) { f = { t: 0, o: new Set(), sk }; g.flames.set(i, f); }
   f.t = FLAME_T; f.o.add(owner);
 }
 
+// b.sh: the blast shape (plus, diag, square, pierce); during the 'max' event every bomb reaches MAX_R
 function explode(g, b) {
   const k = g.bombs.indexOf(b);
   if (k < 0) return;
   g.bombs.splice(k, 1);
-  addFlame(g, b.i, b.owner);
+  const sh = b.sh || 'plus', sk = b.sk | 0, reach = g.ev === 'max' ? MAX_R : b.r;
+  addFlame(g, b.i, b.owner, sk);
   const bx = b.i % W, by = (b.i / W) | 0;
-  for (const [dx, dy] of DIRS) {
+  if (sh === 'square') {
+    // everything around the bomb: 3x3, or 5x5 from range 4 (walls stop nothing but themselves)
+    const R = reach >= 4 ? 2 : 1;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const x = bx + dx, y = by + dy;
+      if ((dx || dy) && x >= 0 && y >= 0 && x < W && y < H) blastCell(g, idx(x, y), b, sk);
+    }
+    return;
+  }
+  const pierce = sh === 'pierce';
+  for (const [dx, dy] of sh === 'diag' ? [[1, 1], [1, -1], [-1, 1], [-1, -1]] : DIRS) {
     // a flame that enters a portal comes out of the paired portal and keeps going (once per ray)
-    let x = bx, y = by, jumped = false;
-    for (let r = 1; r <= b.r; r++) {
+    let x = bx, y = by, jumped = sh === 'diag';
+    for (let r = 1; r <= reach; r++) {
       x += dx; y += dy;
       if (x < 0 || y < 0 || x >= W || y >= H) break;
       const i = idx(x, y), c = g.grid[i];
-      if (c === '#' || c === 'X') break;
-      if (c === 'x') { g.grid[i] = 'X'; g.burn.set(i, FLAME_T); break; }
-      addFlame(g, i, b.owner);
-      if (POWERS.includes(c)) { g.grid[i] = '.'; break; }
+      // diagonal fire flies over the pillars inside the board (on odd cells every diagonal starts at one)
+      if (c === '#') { if (sh === 'diag' && x > 0 && y > 0 && x < W - 1 && y < H - 1) continue; break; }
+      if (c === 'X') { if (pierce) continue; break; }
+      if (c === 'x') { g.grid[i] = 'X'; g.burn.set(i, FLAME_T); if (pierce) continue; break; }   // pierce: through every box in the line
+      addFlame(g, i, b.owner, sk);
+      if (POWERS.includes(c)) { g.grid[i] = '.'; if (pierce) continue; break; }
       const ob = g.bombs.find(o => o.i === i);
       if (ob) { explode(g, ob); break; }
       const ex = jumped ? -1 : portalExit(i);
       if (ex >= 0) {
         jumped = true; x = ex % W; y = (ex / W) | 0;
-        addFlame(g, ex, b.owner);
+        addFlame(g, ex, b.owner, sk);
         const eb = g.bombs.find(o => o.i === ex);
         if (eb) { explode(g, eb); break; }
       }
     }
   }
+}
+// one cell of a square blast: boxes burn, items go, other bombs go off
+function blastCell(g, i, b, sk) {
+  const c = g.grid[i];
+  if (c === '#' || c === 'X') return;
+  if (c === 'x') { g.grid[i] = 'X'; g.burn.set(i, FLAME_T); return; }
+  addFlame(g, i, b.owner, sk);
+  if (POWERS.includes(c)) g.grid[i] = '.';
+  const ob = g.bombs.find(o => o.i === i);
+  if (ob) explode(g, ob);
 }
 
 function placeBomb(g, p, cellHint) {
@@ -274,7 +323,7 @@ function placeBomb(g, p, cellHint) {
   }
   if (g.bombs.some(b => b.i === i)) return;
   if (g.bombs.filter(b => b.owner === p.id).length >= p.maxB) return;
-  const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: g.fuse || FUSE, r: p.fire, owner: p.id };
+  const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: g.fuse || FUSE, r: p.fire, owner: p.id, sh: p.shape, sk: p.skin };
   g.bombs.push(b);
   for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
 }
@@ -312,7 +361,8 @@ function tickDrops(g, dt) {
   for (const d of g.drops) d.t -= dt;
   for (const d of g.drops.filter(d => d.t <= 0)) {
     if (isWallish(g.grid[d.i]) || g.bombs.some(b => b.i === d.i)) continue;
-    const b = { id: ++g.bid, i: d.i, fx: d.i % W, fy: (d.i / W) | 0, vx: 0, vy: 0, lock: -1, t: GHOST_FUSE, r: 2, owner: d.o };
+    const owner = g.players.find(q => q.id === d.o);
+    const b = { id: ++g.bid, i: d.i, fx: d.i % W, fy: (d.i / W) | 0, vx: 0, vy: 0, lock: -1, t: GHOST_FUSE, r: 2, owner: d.o, sk: owner ? owner.skin : 0 };
     g.bombs.push(b);
     for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
   }
@@ -327,6 +377,8 @@ function dropItems(g, p) {
   for (let k = 0; k < p.spd; k++) items.push('s');
   if (p.kick) items.push('k');
   if (p.shield) items.push('h');
+  const shapeItem = Object.keys(SHAPE_OF).find(k => SHAPE_OF[k] === p.shape);
+  if (shapeItem) items.push(shapeItem);
   if (!items.length) return;
   const portals = new Set(PORTALS.flat());
   const taken = new Set(g.players.filter(q => q.alive).map(q => idx(Math.round(q.x), Math.round(q.y))));
@@ -400,6 +452,9 @@ function stepGame(g, inputs, dt, scores) {
     const inp = inputs[p.id] || { dx: 0, dy: 0, b: p.lastB };
     let dx = inp.dx | 0, dy = inp.dy | 0;
     if (dx && dy) dy = 0;
+    // ice: with no key held you keep sliding the way you last went
+    if (g.ev === 'ice') { if (dx || dy) p.slide = [dx, dy]; else if (p.slide) [dx, dy] = p.slide; }
+    const sx = p.x, sy = p.y;
     if (p.ct > 0 && (p.ct -= dt) <= 0) { p.ct = 0; p.ck = 0; }
     if (p.ck === 1) { dx = -dx; dy = -dy; }   // remote players already send reversed positions; this covers local ones and kicks
     const remote = typeof inp.px === 'number' && inp.pr === g.rid;
@@ -410,6 +465,7 @@ function stepGame(g, inputs, dt, scores) {
       p.dir = dx > 0 ? 1 : dx < 0 ? 3 : dy > 0 ? 2 : 0;
       tryMove(g, p, dx, dy, speedOf(p) * dt);
       portalCheck(p);
+      if (p.slide && p.x === sx && p.y === sy) p.slide = null;   // slid into a wall: stop
     }
     if (p.lastB === null) p.lastB = inp.b;
     else if (inp.b !== p.lastB) { p.lastB = inp.b; if (!p.zb) placeBomb(g, p, inp.bc); }
@@ -434,6 +490,7 @@ function stepGame(g, inputs, dt, scores) {
     else if (c === 'k') { p.kick = true; g.grid[ci] = '.'; }
     else if (c === 'h') { p.shield = true; g.grid[ci] = '.'; }
     else if (c === 'c') { p.ck = 1 + Math.floor(Math.random() * 3); p.ct = CURSE_T; p.autoT = 0; g.grid[ci] = '.'; }
+    else if (SHAPE_OF[c]) { p.shape = SHAPE_OF[c]; g.grid[ci] = '.'; }
   }
   // curses spread by touch
   for (const a of g.players) if (a.alive && a.ck) for (const b of g.players)
@@ -485,6 +542,7 @@ function stepGame(g, inputs, dt, scores) {
   }
 
   g.t = (g.t || 0) + dt;
+  tickEvent(g, dt);
   if ((g.t >= SD_START && (g.mode === 's' || g.mode === 't')) || g.sdOn) {
     g.sdAcc = (g.sdAcc || 0) + dt; g.sdk = g.sdk || 0;
     while (g.sdAcc >= SD_STEP && g.sdk < SD_ORDER.length) {
@@ -532,10 +590,12 @@ function snapshot(g, scores) {
     rid: g.rid, md: g.mode || (g.teams ? 't' : 's'), gw: W, gh: H, ru: g.rule || '', mp: g.map || 'classic',
     ph: g.ph, tm: Math.ceil(Math.max(0, g.timer)),
     g: g.grid.join(''),
-    bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
+    bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0, b.sk | 0, SHAPES.indexOf(b.sh || 'plus')]),
     fl: [...g.flames.keys()],
+    fs: [...g.flames.values()].map(f => f.sk | 0),
+    ev: g.ev || '', ew: g.evWarn || '', et: Math.ceil(g.ev ? g.evT : g.evWarn ? g.evWarnT : 0),
     pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0), p.zb ? (p.stun > 0 ? 2 : 1) : 0, p.hat || '',
-      p.coins || 0, p.hp || 0, p.boss ? 1 : 0, p.maxB, p.fire]),
+      p.coins || 0, p.hp || 0, p.boss ? 1 : 0, p.maxB, p.fire, SHAPES.indexOf(p.shape || 'plus'), p.skin | 0]),
     w: g.winner || '', pz: g.pz ? 1 : 0,
     sd: g.ph === 'play' && (g.mode === 's' || g.mode === 't') ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
     zt: g.ph === 'play' && g.mode === 'z' ? Math.max(0, Math.ceil(ZOMBIE_T - (g.t || 0))) : -1,

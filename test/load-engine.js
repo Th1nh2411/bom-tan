@@ -8,7 +8,7 @@ const PVE = readFileSync(new URL('../public/js/pve.js', import.meta.url), 'utf8'
 const API = [
   'W', 'H', 'PORTALS', 'SD_ORDER', 'SD_START', 'SD_STEP', 'SHIELD_INV', 'GHOST_WARN', 'GHOST_CD', 'FUSE', 'CURSE_T', 'speedOf', 'ZOMBIE_T', 'ZOMBIE_STUN', 'DAILY_RULES', 'dailyRuleFor',
   'idx', 'sizeFor', 'setDims', 'pickSpawns', 'newGame', 'stepGame', 'explode', 'placeBomb', 'ghostDrop', 'snapshot', 'portalExit',
-  'addMob', 'spawnBoss', 'buyItem', 'STAGES', 'SHOP', 'HUNT_T', 'MOB_KINDS', 'nextStage', 'respawnDead',
+  'addMob', 'spawnBoss', 'buyItem', 'STAGES', 'SHOP', 'HUNT_T', 'MOB_KINDS', 'nextStage', 'respawnDead', 'BOSS_MOVES', 'bossMove', 'EVENTS', 'MAX_R', 'rollItem',
 ];
 
 export function loadEngine() {
