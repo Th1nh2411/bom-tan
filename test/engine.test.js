@@ -260,3 +260,24 @@ test('daily rule: same rule for the same date, and each rule changes the round',
   assert.equal(p.maxB, 1, 'one-bomb rule: bomb pickups do nothing');
   assert.equal(p.fire, 8);
 });
+
+test('turning between two cells finishes the step you were taking, and goes back only when ahead is blocked', () => {
+  const e = loadEngine();
+  const run = (blockAhead) => {
+    const g = openGame(e, 1);
+    const p = g.players[0];
+    p.inv = 99;
+    for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) g.grid[e.idx(x, y)] = '.';   // open floor, no portal
+    if (blockAhead) g.grid[e.idx(6, 6)] = '#';
+    p.x = 5; p.y = 5; p.mx = p.my = 0;
+    while (p.y < 5.4) e.stepGame(g, { [p.id]: { dx: 0, dy: 1, b: 0 } }, 1 / 60, {});   // down, stop 40% into the cell
+    for (let k = 0; k < 30; k++) e.stepGame(g, { [p.id]: { dx: 1, dy: 0, b: 0 } }, 1 / 60, {});   // then right
+    return p;
+  };
+  const open = run(false);
+  assert.equal(open.y, 6, 'kept going down to the next row');
+  assert.ok(open.x > 5, 'then turned right');
+  const blocked = run(true);
+  assert.equal(blocked.y, 5, 'row ahead blocked: back to the row behind');
+  assert.ok(blocked.x > 5);
+});

@@ -50,7 +50,7 @@ function predictStep(dt) {
   for (const b of bombs) if (b.i === ci && !pred.bombs.has(b.i)) pred.pass.push(b.i);
   pred.bombs = new Set(bombs.map(b => b.i));
   const view = { grid: predGrid, bombs };
-  const pp = { x: pred.x, y: pred.y, pass: pred.pass, lock: pred.lock };
+  const pp = { x: pred.x, y: pred.y, pass: pred.pass, lock: pred.lock, mx: pred.mx, my: pred.my };
   let d = ctlDir(ctlA);
   if (me.ck === 1) d = { ...d, dx: -d.dx, dy: -d.dy };   // reversed-controls curse
   if (me.zb === 2) d = { ...d, dx: 0, dy: 0 };             // stunned zombie
@@ -64,7 +64,7 @@ function predictStep(dt) {
     if (portalCheck(pp)) { myTp++; pred.tpT = 1; sfx.teleport(); }
   }
   if (pred.slide && pp.x === ox && pp.y === oy) pred.slide = null;
-  pred.x = pp.x; pred.y = pp.y; pred.lock = pp.lock;
+  pred.x = pp.x; pred.y = pp.y; pred.lock = pp.lock; pred.mx = pp.mx; pred.my = pp.my;
   const ni = idx(Math.round(pred.x), Math.round(pred.y));
   pred.pass = pp.pass.filter(i => i === ni && pred.bombs.has(i));
   // reconcile with the server

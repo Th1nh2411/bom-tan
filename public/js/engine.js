@@ -192,19 +192,26 @@ function tryMove(g, p, dx, dy, step) {
   const cm = Math.round(p[main]), cs = Math.round(p[side]);
   const off = p[side] - cs;
   if (Math.abs(off) > 1e-3) {
-    const lanes = [cs, cs + (off > 0 ? 1 : -1)];
+    // turning between two cells: finish the step you were taking (the lane ahead) when it is open,
+    // otherwise fall back to the lane behind; never pull back past half a cell for nothing
+    const near = cs, far = cs + (off > 0 ? 1 : -1);
+    const went = horiz ? p.my : p.mx;   // last move along the axis we are leaving
+    const ahead = went > 0 ? Math.ceil(p[side]) : went < 0 ? Math.floor(p[side]) : near;
+    const lanes = ahead === far ? [far, near] : [near, far];
     for (const lane of lanes) {
       const dist = Math.abs(p[side] - lane);
       if (dist > 0.75) continue;
-      if (free(cm + d, lane) && (lane === cs || free(cm, lane))) {
+      if (free(cm + d, lane) && (lane === near || free(cm, lane))) {
         const dir = Math.sign(lane - p[side]);
         p[side] = dist <= step ? lane : p[side] + dir * step;
+        if (horiz) p.my = dir; else p.mx = dir;
         return;
       }
     }
     return;
   }
   p[side] = cs;
+  if (horiz) { p.mx = d; p.my = 0; } else { p.my = d; p.mx = 0; }
   let n = p[main] + d * step;
   if (!free(cm + d, cs)) n = d > 0 ? Math.min(n, cm) : Math.max(n, cm);
   p[main] = n;
