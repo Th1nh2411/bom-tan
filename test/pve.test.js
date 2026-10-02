@@ -194,6 +194,21 @@ test('boss hunt: the boss player has several lives, summons slimes, and loses wh
   assert.equal(g.winner, 'hunters');
 });
 
+test('boss hunt: downed hunters wait for a rescue with no time limit; the boss wins once every hunter is down', () => {
+  const e = loadEngine();
+  const g = coop(e, 'h', 3);
+  const boss = g.players.find(p => p.boss), [h1, h2] = g.players.filter(p => !p.boss);
+  at(boss, 1, 1); at(h1, 9, 9); at(h2, 9, 1);
+  boss.inv = h2.inv = 99;
+  h1.alive = false; h1.down = e.DOWN_T;
+  step(e, g, e.DOWN_T * 4);
+  assert.ok(!h1.alive && h1.down > 0, 'still waiting');
+  assert.equal(g.ph, 'play');
+  h2.alive = false; h2.down = e.DOWN_T;
+  step(e, g, 0.05);
+  assert.equal(g.winner, 'boss');
+});
+
 const near = (e, g, p) => {
   let d = 1e9;
   for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - p.x) + Math.abs(m.y - p.y));
