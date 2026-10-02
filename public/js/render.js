@@ -86,7 +86,8 @@ function drawTile(c, x, y, now) {
   } else if (POWERS.includes(c)) {
     const bob = Math.sin(now / 250 + x + y) * T * .04;
     ctx.fillStyle = '#3c3c3c'; ctx.beginPath(); ctx.arc(px + T / 2, py + T / 2 + bob, T * .36, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1, T * .05); ctx.stroke();
+    // the curse is a bad item: a red rim so it never passes for a power-up
+    ctx.strokeStyle = c === 'c' ? '#d0606e' : '#181818'; ctx.lineWidth = Math.max(1, T * (c === 'c' ? .08 : .05)); ctx.stroke();
     ctx.font = `${Math.round(T * .44)}px ${EMOJI_FONT}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     fillEmoji({ b: '💣', f: '🔥', s: '👟', k: '🧤', h: '🛡️', c: '💀' }[c], px + T / 2, py + T / 2 + bob + T * .02);
@@ -202,7 +203,7 @@ function draw(dt) {
     if (p.ck && p.alive) {
       // cursed: a dashed ring that spins, plus a small skull
       ctx.save(); ctx.setLineDash([T * .08, T * .07]); ctx.lineDashOffset = -now / 40;
-      ctx.strokeStyle = '#9d8fbf'; ctx.lineWidth = Math.max(1.5, T * .05);
+      ctx.strokeStyle = '#d0606e'; ctx.lineWidth = Math.max(1.5, T * .06);
       ctx.beginPath(); ctx.arc(cx, cy, r + T * .22, 0, 7); ctx.stroke(); ctx.restore();
       ctx.font = `${Math.round(T * .24)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       fillEmoji('💀', cx - r * .9, cy - r * .8);
