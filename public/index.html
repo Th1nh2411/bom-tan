@@ -48,7 +48,7 @@
       <input type="text" id="name" maxlength="12" autocomplete="off">
       <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
       <div id="hatsWrap" hidden><label class="f">Mũ</label><div class="hats" id="hats" role="group" aria-label="Mũ"></div></div>
-      <label class="chk"><input type="checkbox" id="joinChk" checked> Tham gia ván tới</label>
+      <label class="chk"><input type="checkbox" id="joinChk" checked> Tự sẵn sàng ván mới</label>
     </details>
     <details class="sec" id="teamCard" open hidden>
       <summary>chọn đội</summary>
@@ -60,11 +60,6 @@
     <details class="sec" open>
       <summary>phòng <span class="badge" id="roomBadge"></span></summary>
       <div class="btns">
-        <button class="b primary" id="hostBtn" hidden><i>▶</i>Làm chủ phòng</button>
-        <div class="seg" id="modeSeg" role="radiogroup" aria-label="Chế độ chơi" hidden>
-          <button data-m="s" role="radio">Solo</button><button data-m="t" role="radio">Đội</button><button data-m="z" role="radio">Zombie</button>
-        </div>
-        <button class="b primary" id="startBtn" hidden><i>▶</i>Bắt đầu ván</button>
         <button class="b" id="lobbyBtn" hidden><i>■</i>Dừng, về sảnh</button>
         <button class="b" id="inviteBtn"><i>⧉</i><span>Sao chép link mời</span></button>
         <button class="b" id="localBtn"><i>⇆</i><span>Chơi 2 người trên 1 máy</span></button>
@@ -92,13 +87,6 @@
         <canvas id="cv" aria-label="Bàn chơi"></canvas>
         <div class="overlay" id="overlay">
           <div class="big" id="ovBig">Bom Tấn</div><div class="small" id="ovSmall"></div><pre class="stats" id="ovStats"></pre>
-          <div class="ov-start" id="ovStart" hidden></div>
-          <dl class="ov-keys" id="ovKeys" hidden>
-            <dt>Di chuyển</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd>
-            <dt>Đặt bom</dt><dd><kbd>Space</kbd></dd>
-            <dt>Biểu cảm</dt><dd><kbd>1</kbd> … <kbd>6</kbd></dd>
-            <dt>Tạm dừng</dt><dd><kbd>Esc</kbd></dd>
-          </dl>
         </div>
       </div>
     </div>
@@ -136,6 +124,7 @@
               <dt>Người 2</dt><dd><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> + <kbd>Enter</kbd></dd>
             </dl>
             <h3>Chủ phòng</h3>
+            <p>Người vào phòng đầu tiên làm chủ phòng: chọn chế độ, bắt đầu ván. Chủ phòng rời đi thì người kế tiếp thay.</p>
             <p>Bấm <kbd>kick</kbd> cạnh tên trong danh sách người chơi để mời người đó ra khỏi phòng.</p>
           </section>
           <section class="help-card wide">
@@ -183,6 +172,7 @@
         </div>
       </div>
     </div>
+    <div class="lobby" id="lobby" hidden><div class="lob-card"></div></div>
     <div class="pad" id="pad">
       <div class="dpad">
         <button class="u" data-d="0,-1" aria-label="Lên">▲</button>
@@ -212,6 +202,7 @@
 <script src="js/render.js"></script>
 <script src="js/progress.js"></script>
 <script src="js/auth.js"></script>
+<script src="js/lobby.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

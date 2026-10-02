@@ -12,24 +12,23 @@ function resolveProfiles(ids) {
   }).catch(() => need.forEach(id => profilePending.delete(id)));
 }
 let mode = 'online';          // 'online' | 'local'
-let hosting = false;
-let hostMode = 's';   // 's' solo, 't' teams, 'z' zombie
-let hostGame = null;
-let scores = {};
-let snap = null, lastSnapObj = null, lastSnapGrid = null;
-let hostPeer = null, hostLeftNotice = false, hostLeftAt = 0, myRtt = 0;
-// kick: the host keeps a ban list of player keys (per browser) and publishes it; a kicked client disconnects itself
-const kicked = new Set();
+let localGame = null;         // 2 players on 1 machine: the game runs in this browser
+let scores = {};              // local mode wins
+// online, the server runs the game; netGame is the latest snapshot it sent ({b: body, gg: grid}),
+// kept while local mode borrows the board
+let snap = null, netGame = null, myRtt = 0;
 let kickedOut = false, roomFull = false;
-const isKicked = p => kicked.has(p.by) || kicked.has(p.peer);
 let pred = null, myTp = 0;
+// the room owner (picked by the server) starts rounds, picks the mode and kicks
+const isOwner = () => mode === 'online' && !!snap && !!myPeer && snap.ow === myPeer;
 let lb = {};                  // leaderboard cache: key -> doc
 
 function inputChanged() {
-  if (room && mode === 'online' && !hosting) { const d = ctlDir(ctlA); room.presence({ dx: d.dx, dy: d.dy, b: d.b, bc: d.bc }).catch(() => {}); }
+  // key presses go out at once (not batched with the per-frame position) so bombs land without delay
+  if (room && mode === 'online') { const d = ctlDir(ctlA); room.presence({ dx: d.dx, dy: d.dy, b: d.b, bc: d.bc }, true).catch(() => {}); }
 }
 function pushMe() {
-  if (room) room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null }).catch(() => {});
+  if (room) room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, li: isLoggedIn() ? 1 : null }).catch(() => {});
   renderList();
 }
 
@@ -49,11 +48,11 @@ const ROOM_ID = (() => {
 function createRoom(roomId, peerId, byId, opts = {}) {
   let ws = null, isConn = false, retry = 500;
   let peerMap = new Map(), peersArr = Object.freeze([]);
-  let mine = {}, pending = null, lbFn = null;
+  let mine = {}, pending = null, lbFn = null, gameFn = null, gBody = null, gGrid = '';
   const connFns = [], peersFns = [];
-  let denyFn = null, fatalFn = null, rttFn = null, authFn = null, byFn = null, pendingToken = null;
+  let fatalFn = null, rttFn = null, authFn = null, byFn = null, pendingToken = null;
   // measure the round trip to the server every 2s (shown in the player list)
-  setInterval(() => { if (isConn) send({ t: 'ping', ts: performance.now() }); }, 2000);   // server refused our host claim / closed us for good (kicked, room full)
+  setInterval(() => { if (isConn) send({ t: 'ping', ts: performance.now() }); }, 2000);
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/ws';
   const mergeP = (a, p) => { const o = { ...a }; for (const k of Object.keys(p || {})) { if (p[k] === null) delete o[k]; else o[k] = p[k]; } return o; };
   const entry = (peer, by, presence) => Object.freeze({ peer, by: by || null, isMe: peer === peerId, sameTab: peer === peerId, kind: 'viewer', guest: false, presence: Object.freeze(presence || {}), updatedAt: Date.now() });
@@ -83,10 +82,16 @@ function createRoom(roomId, peerId, byId, opts = {}) {
       peerMap = new Map();
       for (const e of (m.peers || [])) if (e.peer !== peerId) peerMap.set(e.peer, entry(e.peer, e.by, e.p));
       peerMap.set(peerId, entry(peerId, byId, mine));
+      if (m.g && typeof m.gg === 'string') { gBody = m.g; gGrid = m.gg; if (gameFn) gameFn(gBody, gGrid); }
       setConn(true);
       if (pendingToken) { send({ t: 'auth', token: pendingToken }); pendingToken = null; }
       emit([...peerMap.values()]);
       if (lbFn) send({ t: 'lb' });
+    } else if (m.t === 'g') {
+      // the server's game: only the parts that changed since the last message
+      if (m.b && typeof m.b === 'object') gBody = m.b;
+      if (typeof m.gg === 'string') gGrid = m.gg;
+      if (gBody && gameFn) gameFn(gBody, gGrid);
     } else if (m.t === 'join') {
       if (m.peer === peerId) return;
       const e = entry(m.peer, m.by, m.p); peerMap.set(m.peer, e); emit([e]);
@@ -106,8 +111,6 @@ function createRoom(roomId, peerId, byId, opts = {}) {
       if (old && m.peer !== peerId) { const e = entry(m.peer, m.by, old.presence); peerMap.set(m.peer, e); emit([], [], [e]); }
     } else if (m.t === 'pong') {
       if (rttFn && typeof m.ts === 'number') rttFn(Math.max(0, Math.round(performance.now() - m.ts)));
-    } else if (m.t === 'deny') {
-      if (denyFn) denyFn(m.what);
     } else if (m.t === 'lb') {
       if (lbFn) lbFn(Array.isArray(m.rows) ? m.rows : []);
     }
@@ -127,7 +130,8 @@ function createRoom(roomId, peerId, byId, opts = {}) {
   setInterval(flush, 100);
   connect();
   return {
-    presence(patch) {
+    // now: send at once instead of waiting for the next ~16ms batch
+    presence(patch, now) {
       // only send what changed: prediction and inputs re-send the same values every frame
       const diff = {};
       for (const k of Object.keys(patch)) {
@@ -137,20 +141,19 @@ function createRoom(roomId, peerId, byId, opts = {}) {
       if (!Object.keys(diff).length) return Promise.resolve();
       mine = mergeP(mine, diff);
       pending = { ...(pending || {}), ...diff };
-      scheduleFlush();
+      if (now) flush(); else scheduleFlush();
       peerMap.set(peerId, entry(peerId, byId, mine));
       peersArr = Object.freeze([...peerMap.values()]);
       return Promise.resolve();
     },
-    // send everything once more (a new host never saw our earlier host-only patches)
-    resync() { pending = { ...mine }; scheduleFlush(); },
     peers: () => peersArr,
     connected: () => isConn,
     onPeers(fn) { peersFns.push(fn); setTimeout(() => fn({ peers: peersArr, joined: peersArr, left: [], updated: [] }), 0); return () => { const i = peersFns.indexOf(fn); if (i >= 0) peersFns.splice(i, 1); }; },
     onConnection(fn) { connFns.push(fn); setTimeout(() => fn(isConn), 0); return () => { const i = connFns.indexOf(fn); if (i >= 0) connFns.splice(i, 1); }; },
     onLeaderboard(fn) { lbFn = fn; send({ t: 'lb' }); },
-    recordLeaderboard(rows) { send({ t: 'lbrec', rows }); },
-    onDeny(fn) { denyFn = fn; },
+    onGame(fn) { gameFn = fn; },
+    // room commands for the server: pause, ghost bombs, and the owner's start / lobby / mode / kick
+    cmd(o) { send({ t: 'cmd', ...o }); },
     onRtt(fn) { rttFn = fn; },
     onAuth(fn) { authFn = fn; },
     onMyBy(fn) { byFn = fn; },
@@ -176,8 +179,15 @@ function initNet() {
     lb = next; renderLeaderboard();
   });
   room.onConnection(c => { connected = c; updateNetText(); updateUI(); });
-  // someone else became host first: step back and follow them
-  room.onDeny(what => { if (what === 'host' && hosting) { stopHosting(); onRoomChange(); updateUI(); } });
+  room.onGame((b, gg) => {
+    netGame = { b, gg };
+    if (mode !== 'online') return;   // local mode owns the board until it ends
+    const prev = snap;
+    setSnap(sanitizeSnap({ ...b, g: gg }));
+    // owner, phase, mode or pause changed: show the right buttons now rather than on the next UI refresh
+    maybeMakePublic();
+    if (!prev || !snap || prev.ow !== snap.ow || prev.ph !== snap.ph || prev.md !== snap.md || prev.pz !== snap.pz) updateUI();
+  });
   room.onRtt(ms => { myRtt = ms; room.presence({ rt: Math.round(ms / 5) * 5 }).catch(() => {}); });
   room.onFatal(code => { if (code === 4001) kickedOut = true; else roomFull = true; setSnap(null); updateUI(); });
   room.onPeers(ch => {
@@ -186,32 +196,11 @@ function initNet() {
     onRoomChange();
   });
   const d = ctlDir(ctlA);
-  room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, dx: d.dx, dy: d.dy, b: d.b, bc: -1 });
+  room.presence({ n: myName, c: myColor, j: joined ? 1 : null, t: myTeam, hat: myHat || null, li: isLoggedIn() ? 1 : null, dx: d.dx, dy: d.dy, b: d.b, bc: -1 });
 }
 
 function peers() { return room ? room.peers() : []; }
-function findHost() {
-  const hs = peers().filter(p => p.presence && p.presence.h === 1 && p.presence.g && typeof p.presence.g === 'object');
-  hs.sort((a, b) => a.peer < b.peer ? -1 : 1);
-  return hs[0] || null;
-}
-
 function onRoomChange() {
-  const h = findHost();
-  if (hosting && h && !h.sameTab) stopHosting();
-  const prevHost = hostPeer;
-  hostPeer = hosting ? myPeer : (h ? h.peer : null);
-  if (!hosting && hostPeer && hostPeer !== prevHost) room.resync();
-  if (prevHost && !hostPeer && !hosting) { hostLeftNotice = true; hostLeftAt = Date.now(); }
-  if (hostPeer) { hostLeftNotice = false; hostLeftAt = 0; }
-  if (!hosting && mode === 'online' && h && (h.presence.g !== lastSnapObj || h.presence.gg !== lastSnapGrid)) {
-    lastSnapObj = h.presence.g; lastSnapGrid = h.presence.gg;
-    setSnap(sanitizeSnap({ ...h.presence.g, g: h.presence.gg }));
-  }
-  if (!h && !hosting && mode === 'online' && snap) setSnap(null);
-  if (!hosting && snap && (snap.kk.includes(PLAYER_KEY) || snap.kk.includes(myPeer)) && !kickedOut) {
-    kickedOut = true; room.leave(); setSnap(null); updateUI();
-  }
   // emotes from everyone
   for (const p of peers()) {
     const em = p.presence && p.presence.em;
@@ -227,11 +216,11 @@ function onRoomChange() {
 
 function sanitizeSnap(s) {
   if (!s || typeof s.g !== 'string' || !Array.isArray(s.pl)) return null;
-  // adopt the host's board size before anything indexes the grid
+  // adopt the server's board size before anything indexes the grid
   if (!setDims(s.gw | 0 || 15, s.gh | 0 || 13) || s.g.length !== W * H) return null;
   const md = s.md === 't' || s.md === 'z' ? s.md : 's';
   const teamRank = [0, 0];
-  const pl = s.pl.filter(a => Array.isArray(a) && a.length >= 8).slice(0, 8).map(a => {
+  const pl = s.pl.filter(a => Array.isArray(a) && a.length >= 8).slice(0, 16).map(a => {
     const team = a[8] | 0;
     let color = COLORS[(a[4] | 0) & 7];
     if (md === 't' && (team === 0 || team === 1)) color = TEAM_SHADES[team][teamRank[team]++ % 4];
@@ -248,7 +237,8 @@ function sanitizeSnap(s) {
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: s.g,
     bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5] })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
-    pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb),
+    pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb), ow: typeof s.ow === 'string' ? s.ow : '', pb: s.pb === 1,
+    rd: Array.isArray(s.rd) ? s.rd.map(String).slice(0, 16) : [], sa: typeof s.sa === 'number' ? s.sa | 0 : -1,
     kk: Array.isArray(s.kk) ? s.kk.filter(k => typeof k === 'string').slice(0, 64) : [],
     sd: typeof s.sd === 'number' ? s.sd | 0 : -1,
     zt: typeof s.zt === 'number' ? s.zt | 0 : -1,

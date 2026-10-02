@@ -1,8 +1,8 @@
 /* ---------- local player settings ---------- */
-let myName = cleanName(store('bt-name')) || ('Người chơi ' + (Math.floor(Math.random() * 90) + 10));
-let myColor = Number(store('bt-color'));
+let myName = cleanName(store('bt-name')) || ('Tân binh ' + (Math.floor(Math.random() * 90) + 10));
+let myColor = Number(store('bt-color') ?? NaN);   // Number(null) is 0: without the ?? every new player got colour 0
 if (!(myColor >= 0 && myColor < 8)) myColor = Math.floor(Math.random() * 8);
-let myTeam = Number(store('bt-team'));
+let myTeam = Number(store('bt-team') ?? NaN);
 if (!(myTeam === 0 || myTeam === 1)) myTeam = -1;
 let joined = true;
 $('name').value = myName;
@@ -93,7 +93,7 @@ function setMouseDir(d) {
 }
 function myPos() {
   if (!snap || (snap.ph !== 'play' && snap.ph !== 'count')) return null;
-  if (mode === 'online' && !hosting) return pred ? { x: pred.x, y: pred.y } : null;
+  if (mode === 'online') return pred ? { x: pred.x, y: pred.y } : null;
   const me = snap.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
   return me && me.alive ? { x: me.x, y: me.y } : null;
 }
@@ -136,22 +136,11 @@ function mouseSteer() {
   setMouseDir([next % W - cx, ((next / W) | 0) - cy]);
 }
 /* ---------- ghost bombs: dead players left-click the board ---------- */
-let ghostSeq = 0, ghostReadyAt = 0;
-const gbSeen = new Map();   // host: peer -> last ghost-bomb request seq handled
+let ghostReadyAt = 0;
 function canGhost() {
   if (mode !== 'online' || !snap || snap.ph !== 'play' || snap.pz) return false;
   const me = snap.pl.find(p => p.id === myPeer);
   return !!(me && !me.alive && !me.downed);
-}
-function hostGhostRequests() {
-  for (const p of peers()) {
-    if (p.sameTab || isKicked(p)) continue;
-    const z = p.presence && p.presence.gb, seq = Array.isArray(z) ? z[1] | 0 : 0;
-    const seen = gbSeen.get(p.peer);
-    gbSeen.set(p.peer, seq);
-    if (seen === undefined || seen === seq || !hostGame || hostPz) continue;
-    ghostDrop(hostGame, p.peer, z[0] | 0);
-  }
 }
 function onBoardClick(e) {
   if (e.button !== 0 || !canGhost()) return;
@@ -162,8 +151,7 @@ function onBoardClick(e) {
   const cell = idx(x, y);
   if (snap.g[cell] !== '.' || PORTALS.flat().includes(cell) || snap.bm.some(b => b.i === cell)) return;
   ghostReadyAt = performance.now() + GHOST_CD * 1000;
-  if (hosting && hostGame) ghostDrop(hostGame, myPeer, cell);
-  else room.presence({ gb: [cell, ++ghostSeq] }).catch(() => {});
+  room.cmd({ c: 'ghost', cell });
 }
 function onRightClick(e) {
   e.preventDefault();

@@ -31,13 +31,15 @@ public/
   js/sound.js       Âm thanh tổng hợp, không cần file
   js/input.js       Bàn phím, chuột, cảm ứng
   js/net.js         Kết nối WebSocket, trạng thái phòng
-  js/game.js        Làm chủ phòng, dự đoán vị trí, tạm dừng
+  js/game.js        Dự đoán vị trí, tạm dừng, chế độ 1 máy
   js/render.js      Vòng lặp chính, vẽ canvas
   js/progress.js    Thành tích, mũ, thông báo
   js/auth.js        Đăng nhập Google (tuỳ chọn)
+  js/lobby.js       Màn hình chính và sảnh chờ
   js/ui.js          Overlay, danh sách người chơi, nút bấm
 server.js           Phục vụ public/ và WebSocket ở /api/ws, kiểm tra sống ở /healthz
-server/relay.js     Máy chủ chuyển tin giữa những người cùng phòng
+server/relay.js     Kết nối WebSocket, phòng, bảng xếp hạng
+server/game.js      Chạy engine.js trên server cho từng phòng
 server/auth.js      Kiểm tra token Google, cấp phiên đăng nhập
 test/               Test cho engine và relay (node --test)
 render.yaml         Cấu hình deploy lên Render
@@ -47,18 +49,18 @@ Các file trong `public/js/` là script thường, nạp theo thứ tự trong `
 
 ## Cách hoạt động
 
-- **Chủ phòng chạy luật chơi.** Trình duyệt của người làm chủ phòng tính toán ván đấu và gửi trạng thái cho mọi người. Server chỉ chuyển tin, nên rất nhẹ.
+- **Server chạy luật chơi.** Mỗi phòng có một ván chạy trên server (`server/game.js` dùng chung `public/js/engine.js` với trình duyệt), khoảng 60 lần/giây. Mỗi thao tác chỉ mất 1 vòng client ↔ server, và không phụ thuộc mạng của ai khác trong phòng.
+- **Trình duyệt dự đoán vị trí.** Bạn thấy mình di chuyển ngay khi bấm phím; server kiểm tra vị trí gửi lên (không cho chạy nhanh hơn tốc độ, xuyên tường) và kéo về nếu lệch.
+- **Sẵn sàng là vào chơi.** Trong sảnh chờ ai cũng bấm "Sẵn sàng"; khi tất cả (từ 2 người) đã sẵn sàng thì ván tự bắt đầu sau 3 giây. Ai tick "Tự sẵn sàng ván mới" thì hết ván được đánh dấu sẵn sàng luôn, nên cả phòng cùng tick là chơi liên tục.
+- **Chủ phòng** chọn chế độ, bấm "Bắt đầu ngay" (không đợi ai), dừng ván, kick, và bật "Phòng công khai". Người đăng nhập vào phòng đầu tiên làm chủ phòng; chủ phòng rời đi thì người kế tiếp thay sau 1,5 giây, ván đang chơi vẫn tiếp tục.
+- **Phòng công khai** hiện trong danh sách ở màn hình chính và sảnh chờ (`GET /api/rooms`). "Chơi nhanh" vào phòng công khai đông nhất còn chỗ; chưa có phòng nào thì mở công khai phòng hiện tại.
 - **Server giữ trật tự phòng:**
-  - Chỉ một người được làm chủ phòng; người bấm sau bị từ chối.
-  - Người bị kick bị ngắt kết nối và không vào lại được khi chủ phòng đó còn đó.
+  - Người bị kick bị ngắt kết nối và không vào lại được phòng đó.
   - Mỗi phòng tối đa 16 kết nối.
   - Mỗi kết nối gửi tối đa 240 tin/giây.
-  - Chỉ chủ phòng được ghi kết quả vào bảng xếp hạng.
-- **Tiết kiệm băng thông:**
-  - Server nén dữ liệu.
-  - Chỉ gửi phần thay đổi.
-  - Thao tác điều khiển chỉ gửi tới chủ phòng.
-  - Một ván 5 người tốn khoảng 4 KB/s.
+  - Server tự ghi kết quả ván vào bảng xếp hạng, người chơi không gửi điểm lên được.
+- **Tiết kiệm băng thông:** server nén dữ liệu, chỉ gửi phần thay đổi, và thao tác điều khiển không bị chuyển cho người khác.
+- **Chạy một instance.** Phòng nằm trong bộ nhớ của server, nên đừng bật nhiều instance (autoscale). 50 phòng × 8 người tốn khoảng 1 ms CPU mỗi tick.
 
 ## Chạy trên máy
 
@@ -109,13 +111,13 @@ npm test
 ```
 
 - **Test engine** (`test/engine.test.js`): kích thước map, vị trí spawn, vụ nổ, lửa qua cổng, khiên, rơi đồ khi chết, vùng bo, bom của người đã chết, thống kê cuối ván.
-- **Test relay** (`test/relay.test.js`): một chủ phòng, kick, giới hạn phòng, chống spam, chuyển tin điều khiển tới chủ phòng, bảng xếp hạng.
+- **Test relay** (`test/relay.test.js`): server chạy ván, sẵn sàng và tự bắt đầu, phòng công khai, chọn chủ phòng và chuyển chủ phòng, chỉ chủ phòng ra lệnh, điều khiển không bị chuyển cho người khác, kick, ghi bảng xếp hạng, giới hạn phòng, chống spam.
 - **Test đăng nhập** (`test/auth.test.js`): kiểm tra token Google (dùng khóa giả), phiên đăng nhập, chống giả mạo mã người chơi.
 
 ## Những điều cần biết
 
 - **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã thì game tự tạo phòng mới.
-- **Chủ phòng quyết định độ lag của cả phòng.** Nên để người có mạng tốt nhất làm chủ phòng. Chủ phòng chuyển tab thì game vẫn chạy.
+- **Ping phụ thuộc vị trí server.** Server Render ở Singapore: từ Việt Nam khoảng 30–50 ms. Gói miễn phí dùng CPU chia sẻ và ngủ khi không có ai; gói trả phí ổn định hơn.
 - **Bảng xếp hạng dùng chung cho mọi phòng**, và nhận diện người chơi theo trình duyệt, không cần đăng nhập. Đổi trình duyệt thì được tính là người mới.
 - **Sau khi cập nhật code, mọi người phải tải lại trang.** Trình duyệt và server cần cùng phiên bản.
 - **Phím tắt:**

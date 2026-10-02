@@ -14,6 +14,7 @@ function saveAuth(v) {
   authInfo = v;
   store('bt-auth', v ? JSON.stringify(v) : '');
   renderAuth();
+  if (room) pushMe();   // the server only makes signed-in players room owner
 }
 
 function renderAuth() {
@@ -47,13 +48,16 @@ function renderAuth() {
 }
 
 // guests have no session: the server sees them by their device key, like before sign-in existed
-$('gateGuest').onsubmit = e => {
-  e.preventDefault();
-  const n = cleanName($('gateName').value);
-  if (!n) { $('gateName').focus(); return; }
+function joinAsGuest(name) {
+  const n = cleanName(name);
+  if (!n) return false;
   myName = n; $('name').value = n; store('bt-name', n);
   saveAuth({ session: '', by: PLAYER_KEY, name: n, email: '', guest: true });
-  if (room) pushMe();
+  return true;
+}
+$('gateGuest').onsubmit = e => {
+  e.preventDefault();
+  if (!joinAsGuest($('gateName').value)) $('gateName').focus();
 };
 
 // server answer to a Google token (or to a stored session that no longer checks out)

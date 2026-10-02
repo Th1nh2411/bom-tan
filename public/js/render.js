@@ -3,31 +3,11 @@ let lastT = performance.now(), lastListT = 0;
 function simulate(now) {
   const dt = Math.min(0.05, Math.max(0, now - lastT) / 1000); lastT = now;
   mouseSteer();
-  if (mode === 'local' && hostGame) {
+  if (mode === 'local' && localGame) {
     const li = { p1: ctlDir(ctlA), p2: ctlDir(ctlB) };
-    if (hostGame.pz) holdInputs(hostGame, li); else stepGame(hostGame, li, dt, scores);
-    if (hostGame.ph === 'end' && hostGame.timer <= 0) hostGame = newGame(localSlots(), false);
-    setSnap(sanitizeSnap(snapshot(hostGame, scores)));
-  } else if (hosting && room) {
-    hostPauseRequests();
-    hostGhostRequests();
-    if (hostGame && hostPz) holdInputs(hostGame, hostInputs());
-    else if (hostGame) {
-      const present = new Set(peers().map(p => p.peer));
-      // a dropped connection gets RECONNECT_MS to come back (same tab = same peer id) before the player is out
-      const now = Date.now();
-      for (const p of hostGame.players) {
-        if (!p.alive) continue;
-        if (kicked.has(p.id) || kicked.has(p.uid)) { p.alive = false; continue; }
-        if (present.has(p.id)) { missingSince.delete(p.id); continue; }
-        if (!missingSince.has(p.id)) missingSince.set(p.id, now);
-        else if (now - missingSince.get(p.id) > RECONNECT_MS) { p.alive = false; missingSince.delete(p.id); }
-      }
-      stepGame(hostGame, hostInputs(), dt, scores);
-      if (hostGame.justEnded) recordRound(hostGame);
-      if (hostGame.ph === 'end' && hostGame.timer <= 0) { hostGame = null; updateUI(); }
-    }
-    publishHost(false);
+    if (localGame.pz) holdInputs(localGame, li); else stepGame(localGame, li, dt, scores);
+    if (localGame.ph === 'end' && localGame.timer <= 0) localGame = newGame(localSlots(), false);
+    setSnap(sanitizeSnap(snapshot(localGame, scores)));
   } else {
     predictStep(dt);
   }
@@ -44,13 +24,6 @@ function frame(t) {
   if (t - lastListT > 250) { lastListT = t; renderList(); updateUI(); updateStatus(); }
   requestAnimationFrame(frame);
 }
-// Browsers stop requestAnimationFrame in a hidden tab, which would freeze the whole room while the host
-// looks at another tab. A worker's timer keeps ticking, so it drives the simulation (no drawing) while hidden.
-try {
-  const ticker = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 33);'], { type: 'text/javascript' })));
-  ticker.onmessage = () => { if (document.hidden && hosting && mode === 'online') simulate(performance.now()); };
-} catch (e) { /* no workers: the game pauses while the tab is hidden, as before */ }
-
 /* ---------- rendering ---------- */
 const cv = $('cv'), ctx = cv.getContext('2d');
 let T = 40, dpr = 1;

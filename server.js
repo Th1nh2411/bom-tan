@@ -5,7 +5,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attach } from './server/relay.js';
+import { attach, listRooms } from './server/relay.js';
 import { authConfig } from './server/auth.js';
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -15,6 +15,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/api/config') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' }); return res.end(JSON.stringify(authConfig)); }
+  if (url.pathname === '/api/rooms') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' }); return res.end(JSON.stringify(listRooms())); }
   if (url.pathname === '/healthz') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end('ok'); }
   let path = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
   if (!path || path.endsWith('/')) path += 'index.html';

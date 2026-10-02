@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import WebSocket from 'ws';
-import { attach, LIMITS } from '../server/relay.js';
+import { attach, LIMITS, listRooms } from '../server/relay.js';
 
 let server, wss, url;
 before(async () => {
@@ -37,55 +37,116 @@ function client(room, p = {}, name = 'c' + ++seq) {
   return c;
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const me = { li: 1, j: 1 };   // a signed-in player who joins rounds
+// the latest game state a client has seen: the 'full' snapshot, then every 'g' diff applied on top
+function game(c) {
+  let b = null, gg = '';
+  for (const m of c.msgs) {
+    if (m.t === 'full') { b = m.g; gg = m.gg; }
+    else if (m.t === 'g') { if (m.b) b = m.b; if (m.gg) gg = m.gg; }
+  }
+  return b && { ...b, g: gg };
+}
+async function until(c, pred, ms = 4000) {
+  const t0 = Date.now();
+  for (;;) {
+    const g = game(c);
+    if (g && pred(g)) return g;
+    if (Date.now() - t0 > ms) throw new Error('timeout waiting for game state');
+    await sleep(10);
+  }
+}
+const player = (g, id) => g.pl.find(p => p[0] === id);
 
-test('only the first host claim wins; a second claim is refused', async () => {
-  const a = client('host1'), b = client('host1'), v = client('host1');
-  await Promise.all([a.ready, b.ready, v.ready]);
-  a.patch({ h: 1, g: { rid: 1 }, gg: '#' });
-  await v.waitFor(m => m.t === 'p' && m.peer === a.peer && m.p.h === 1);
-  b.patch({ h: 1, g: { rid: 2 }, gg: '#', n: 'B' });
-  await b.waitFor(m => m.t === 'deny' && m.what === 'host');
-  const fromB = await v.waitFor(m => m.t === 'p' && m.peer === b.peer);
-  assert.deepEqual(fromB.p, { n: 'B' }, 'host keys stripped, the rest still relayed');
-  [a, b, v].forEach(c => c.ws.close());
-});
-
-test('a host that reconnects gets its room back', async () => {
-  const a = client('host2', {}, 'H'), v = client('host2');
-  await Promise.all([a.ready, v.ready]);
-  a.patch({ h: 1, g: { rid: 1 }, gg: '#' });
-  await v.waitFor(m => m.t === 'p' && m.p.h === 1);
-  a.ws.close(); await a.closed;
-  const a2 = client('host2', { h: 1, g: { rid: 1 }, gg: '#' }, 'H');
-  await a2.ready;
+test('the server runs the room: joiners get the game, the first signed-in player owns the room', async () => {
+  const guest = client('own1', { j: 1 }), a = client('own1', me), b = client('own1', me);
+  await Promise.all([guest.ready, a.ready, b.ready]);
+  const full = a.msgs.find(m => m.t === 'full');
+  assert.equal(typeof full.gg, 'string');
+  const g = await until(b, g => g.ow === a.peer && g.pl.length === 2);
+  assert.equal(g.ph, 'lobby');
+  assert.ok(!player(g, guest.peer), 'players who have not signed in only watch');
+  // only the owner's commands count
+  b.send({ t: 'cmd', c: 'start' });
   await sleep(100);
-  assert.ok(!a2.msgs.some(m => m.t === 'deny'), 'no deny for the returning host');
-  [a2, v].forEach(c => c.ws.close());
+  assert.equal(game(b).ph, 'lobby');
+  a.send({ t: 'cmd', c: 'mode', m: 'z' });
+  a.send({ t: 'cmd', c: 'start' });
+  const started = await until(b, g => g.ph === 'count');
+  assert.equal(started.md, 'z');
+  assert.equal(started.pl.length, 2);
+  // the owner leaves: after a short grace period the next signed-in player takes over
+  a.ws.close();
+  await until(b, g => g.ow === b.peer);
+  [guest, b].forEach(c => c.ws.close());
 });
 
-test('controls go to the host only; everything else to everyone', async () => {
-  const h = client('route'), g1 = client('route'), g2 = client('route');
-  await Promise.all([h.ready, g1.ready, g2.ready]);
-  h.patch({ h: 1, g: { rid: 1 }, gg: '#' });
-  await g1.waitFor(m => m.t === 'p' && m.p.h === 1);
-  g1.patch({ dx: 1, px: 300 });
-  g1.patch({ em: [0, 1] });
-  await h.waitFor(m => m.t === 'p' && m.peer === g1.peer && m.p.dx === 1);
-  await g2.waitFor(m => m.t === 'p' && m.peer === g1.peer && m.p.em);
-  assert.ok(!g2.msgs.some(m => m.t === 'p' && m.peer === g1.peer && 'dx' in m.p), 'other guests do not get controls');
-  [h, g1, g2].forEach(c => c.ws.close());
+test('controls drive the server game and are never relayed; the rest of presence is', async () => {
+  const a = client('ctl', me), b = client('ctl', me);
+  await Promise.all([a.ready, b.ready]);
+  await until(a, g => g.ow === a.peer && g.pl.length === 2);
+  a.send({ t: 'cmd', c: 'start' });
+  const g0 = await until(b, g => g.ph === 'play', 5000);
+  // spawns are on open cells with no boxes nearby, so a step away from the outer wall is always free
+  const x0 = player(g0, b.peer)[1];
+  b.patch({ dx: x0 <= 100 ? 1 : -1, em: [0, 1] });
+  await a.waitFor(m => m.t === 'p' && m.peer === b.peer && m.p.em);
+  assert.ok(!a.msgs.some(m => m.t === 'p' && 'dx' in m.p), 'controls are not sent to other players');
+  await until(a, g => Math.abs(player(g, b.peer)[1] - x0) >= 50);
+  [a, b].forEach(c => c.ws.close());
 });
 
-test('kicked players are disconnected and cannot rejoin while that host runs the room', async () => {
-  const h = client('kick'), b = client('kick', {}, 'K');
+test('the owner can kick; kicked players cannot rejoin, and the round result goes to the leaderboard', async () => {
+  const h = client('kick', me), b = client('kick', me, 'K');
   await Promise.all([h.ready, b.ready]);
-  h.patch({ h: 1, g: { rid: 1 }, gg: '#' });
-  await b.waitFor(m => m.t === 'p' && m.p.h === 1);
-  h.patch({ g: { rid: 1, kk: [b.by] } });
+  await until(h, g => g.ow === h.peer && g.pl.length === 2);
+  b.send({ t: 'cmd', c: 'kick', peer: h.peer });   // not the owner: ignored
+  h.send({ t: 'cmd', c: 'start' });
+  await until(h, g => g.ph === 'play', 5000);
+  h.send({ t: 'cmd', c: 'kick', peer: b.peer });
   assert.equal(await b.closed, 4001);
-  const again = client('kick', {}, 'K');
+  const end = await until(h, g => g.ph === 'end');
+  assert.deepEqual(end.wi, [h.peer]);
+  const again = client('kick', me, 'K');
   assert.equal(await again.closed, 4001);
+  h.send({ t: 'lb' });
+  const lb = await h.waitFor(m => m.t === 'lb' && m.rows.some(r => r.by === h.by));
+  assert.equal(lb.rows.find(r => r.by === h.by).w, 1);
   h.ws.close();
+});
+
+test('the round starts by itself once everyone is ready; afterwards auto-ready players are ready again', async () => {
+  const a = client('ready', me), b = client('ready', { li: 1 });   // b has auto-ready off
+  await Promise.all([a.ready, b.ready]);
+  let g = await until(a, g => g.ow === a.peer && g.pl.length === 2);
+  assert.deepEqual(g.rd, [a.peer], 'auto-ready on join');
+  assert.equal(g.sa, -1, 'not everyone is ready: no countdown');
+  b.send({ t: 'cmd', c: 'ready', on: true });
+  await until(a, g => g.sa > 0);
+  b.send({ t: 'cmd', c: 'ready', on: false });
+  await until(a, g => g.sa === -1);
+  b.send({ t: 'cmd', c: 'ready', on: true });
+  g = await until(a, g => g.ph === 'count', 5000);
+  assert.equal(g.pl.length, 2);
+  a.send({ t: 'cmd', c: 'lobby' });
+  g = await until(b, g => g.ph === 'lobby');
+  assert.deepEqual(g.rd, [a.peer], 'back in the lobby only auto-ready players are ready');
+  [a, b].forEach(c => c.ws.close());
+});
+
+test('the owner can list the room publicly', async () => {
+  const a = client('pubroom', me), b = client('pubroom', me);
+  await Promise.all([a.ready, b.ready]);
+  await until(a, g => g.ow === a.peer);
+  b.send({ t: 'cmd', c: 'public', on: true });   // not the owner: ignored
+  await sleep(100);
+  assert.ok(!listRooms().some(r => r.id === 'pubroom'));
+  a.send({ t: 'cmd', c: 'public', on: true });
+  await until(b, g => g.pb === 1);
+  const row = listRooms().find(r => r.id === 'pubroom');
+  assert.equal(row.n, 2);
+  assert.equal(row.ow, 'Ẩn danh');
+  [a, b].forEach(c => c.ws.close());
 });
 
 test('rooms are capped', async () => {
@@ -101,16 +162,4 @@ test('flooding closes the connection', async () => {
   await c.ready;
   for (let k = 0; k < LIMITS.MSG_PER_SEC + 20; k++) c.patch({ px: k });
   assert.equal(await c.closed, 1008);
-});
-
-test('only the host can record leaderboard rounds', async () => {
-  const h = client('lb'), g = client('lb');
-  await Promise.all([h.ready, g.ready]);
-  h.patch({ h: 1, g: { rid: 1 }, gg: '#' });
-  await g.waitFor(m => m.t === 'p' && m.p.h === 1);
-  g.send({ t: 'lbrec', rows: [{ by: 'cheater1', n: 'Cheat', w: 20, g: 1 }] });
-  h.send({ t: 'lbrec', rows: [{ by: 'honest1', n: 'Honest', w: 1, g: 1 }] });
-  const lb = await h.waitFor(m => m.t === 'lb' && m.rows.some(r => r.by === 'honest1'));
-  assert.ok(!lb.rows.some(r => r.by === 'cheater1'));
-  [h, g].forEach(c => c.ws.close());
 });

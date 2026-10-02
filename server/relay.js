@@ -1,11 +1,13 @@
-// Bom Tấn realtime relay.
-// Every browser keeps one WebSocket open here. The server only relays "presence"
-// patches between players in the same room; the game itself runs in the host's browser.
-// With REDIS_URL set, the leaderboard is stored in Redis, and if the app ever runs as several
-// instances, they forward room traffic to each other through Redis pub/sub.
+// Bom Tấn realtime server.
+// Every browser keeps one WebSocket open here. The server runs each room's game (server/game.js) and
+// streams snapshots; players' controls are read by the server only. The rest of a player's "presence"
+// (name, colour, team, emotes, ping) is relayed to the others in the same room.
+// Rooms live in this process's memory, so run a single instance. With REDIS_URL set, the leaderboard
+// is stored in Redis (and survives restarts).
 import { WebSocketServer } from 'ws';
 import { createClient } from 'redis';
 import { readSession, verifyGoogleIdToken, makeSession } from './auth.js';
+import { TICK_MS, cleanName, nameOf, newRoomGame, isKicked, refresh, tickRoom, command, onJoin, onLeave, onPresence, lobbyPeers, activeOwner } from './game.js';
 
 const INST = Math.random().toString(36).slice(2, 10);
 const CHANNEL = 'bomtan:v1';
@@ -17,7 +19,6 @@ const MAX_PRESENCE = 8000;
 /* ---------------- helpers ---------------- */
 const cleanRoom = s => (typeof s === 'string' && /^[a-z0-9-]{1,24}$/i.test(s)) ? s.toLowerCase() : null;
 const cleanId = s => (typeof s === 'string' && /^[A-Za-z0-9_-]{4,40}$/.test(s)) ? s : null;
-const cleanName = s => String(s || '').replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, '').trim().slice(0, 12);
 const smallInt = v => Math.max(0, Math.min(20, Number.isFinite(+v) ? Math.floor(+v) : 0));
 
 function merge(base, patch) {
@@ -32,54 +33,29 @@ function cleanPatch(p) {
   if (JSON.stringify(p).length > MAX_PRESENCE) return null;
   return p;
 }
+// Controls (movement, bombs, predicted position) are only read by the server's game, never relayed.
+const CONTROLS = new Set(['dx', 'dy', 'b', 'bc', 'px', 'py', 'pd', 'tp', 'pr']);
+function shared(p) {
+  const o = {};
+  for (const k of Object.keys(p)) if (!CONTROLS.has(k)) o[k] = p[k];
+  return o;
+}
 
 /* ---------------- rooms ---------------- */
-// room -> { local: Map(peer -> {ws, by, p}), remote: Map(peer -> {inst, by, p, seen}), insts: Map(inst -> lastSeen), hb, lastHello }
+// room -> { id, local: Map(peer -> {ws, by, p}), game }
 const rooms = new Map();
 function getRoom(id) {
   let r = rooms.get(id);
-  if (!r) {
-    r = { id, local: new Map(), remote: new Map(), insts: new Map(), hb: null, lastHello: 0 };
-    r.hb = setInterval(() => heartbeat(r), 3000);
-    rooms.set(id, r);
-  }
+  if (!r) { r = { id, local: new Map(), game: newRoomGame() }; rooms.set(id, r); }
   return r;
 }
 function dropRoomIfEmpty(r) {
-  if (r.local.size) return;
-  clearInterval(r.hb);
-  rooms.delete(r.id);
+  if (!r.local.size) rooms.delete(r.id);
 }
-function sendLocal(r, obj, exceptPeer) {
-  const s = JSON.stringify(obj);
+function sendRaw(r, s, exceptPeer) {
   for (const [peer, c] of r.local) if (peer !== exceptPeer && c.ws.readyState === 1) c.ws.send(s);
 }
-// Controls (movement, bombs, predicted position, pause and ghost-bomb requests) only matter to the host,
-// who runs the game. Patches made only of these go to the host instead of everyone, which is most of the traffic.
-const HOST_ONLY = new Set(['dx', 'dy', 'b', 'bc', 'px', 'py', 'pd', 'tp', 'pr', 'pz', 'gb']);
-const hostOnly = patch => Object.keys(patch).every(k => HOST_ONLY.has(k));
-function sendPatch(r, peer, patch) {
-  if (!hostOnly(patch)) return sendLocal(r, { t: 'p', peer, p: patch }, peer);
-  const s = JSON.stringify({ t: 'p', peer, p: patch });
-  for (const [id, c] of r.local) if (id !== peer && c.p.h === 1 && c.ws.readyState === 1) c.ws.send(s);
-}
-function hasRemote(r) {
-  const now = Date.now();
-  for (const t of r.insts.values()) if (now - t < 10000) return true;
-  return false;
-}
-function heartbeat(r) {
-  const now = Date.now();
-  for (const [peer, e] of r.remote) if (now - e.seen > 12000) { r.remote.delete(peer); sendLocal(r, { t: 'leave', peer }); }
-  for (const [i, t] of r.insts) if (now - t > 12000) r.insts.delete(i);
-  publish({ t: 'hb', room: r.id, peers: [...r.local.keys()] });
-}
-function maybeHello(r) {
-  const now = Date.now();
-  if (now - r.lastHello < 2000) return;
-  r.lastHello = now;
-  publish({ t: 'hello', room: r.id });
-}
+const sendLocal = (r, obj, exceptPeer) => sendRaw(r, JSON.stringify(obj), exceptPeer);
 
 /* ---------------- redis (optional) ---------------- */
 let pub = null, redisReady = false;
@@ -93,10 +69,14 @@ async function initRedis() {
     sub.on('error', () => {});
     await pub.connect();
     await sub.connect();
-    await sub.subscribe(CHANNEL, onBus);
+    // another instance (e.g. during a deploy) recorded a round: refresh everyone's leaderboard
+    await sub.subscribe(CHANNEL, raw => {
+      let m; try { m = JSON.parse(raw); } catch { return; }
+      if (m.i !== INST && m.t === 'lbchg') { lbCache = null; for (const r of rooms.values()) broadcastLb(r); }
+    });
     redisReady = true;
   } catch (e) {
-    console.error('redis init failed, running single-instance:', e.message);
+    console.error('redis init failed, leaderboard kept in memory:', e.message);
     redisReady = false;
   }
 }
@@ -104,50 +84,6 @@ const redisInit = initRedis();
 
 function publish(msg) {
   if (redisReady) pub.publish(CHANNEL, JSON.stringify({ ...msg, i: INST })).catch(() => {});
-}
-
-function onBus(raw) {
-  let m; try { m = JSON.parse(raw); } catch { return; }
-  if (m.i === INST) return;
-  const r = rooms.get(m.room);
-  if (!r) return;
-  r.insts.set(m.i, Date.now());
-  switch (m.t) {
-    case 'hello':
-      for (const [peer, c] of r.local) publish({ t: 'join', room: r.id, peer, by: c.by, p: c.p });
-      break;
-    case 'join': {
-      if (r.local.has(m.peer)) break;
-      const p = cleanPatch(m.p) || {};
-      r.remote.set(m.peer, { inst: m.i, by: m.by, p, seen: Date.now() });
-      sendLocal(r, { t: 'join', peer: m.peer, by: m.by, p });
-      break;
-    }
-    case 'p': {
-      const e = r.remote.get(m.peer), patch = cleanPatch(m.p);
-      if (!patch) break;
-      if (!e) { maybeHello(r); break; }
-      e.p = merge(e.p, patch); e.seen = Date.now();
-      sendPatch(r, m.peer, patch);
-      break;
-    }
-    case 'leave':
-      if (r.remote.delete(m.peer)) sendLocal(r, { t: 'leave', peer: m.peer });
-      break;
-    case 'hb': {
-      const listed = new Set(Array.isArray(m.peers) ? m.peers : []);
-      for (const [peer, e] of r.remote) {
-        if (e.inst !== m.i) continue;
-        if (listed.has(peer)) e.seen = Date.now();
-        else { r.remote.delete(peer); sendLocal(r, { t: 'leave', peer }); }
-      }
-      for (const peer of listed) if (!r.remote.has(peer) && !r.local.has(peer)) { maybeHello(r); break; }
-      break;
-    }
-    case 'lbchg':
-      broadcastLb(r);
-      break;
-  }
 }
 
 /* ---------------- leaderboard ---------------- */
@@ -203,31 +139,38 @@ async function sendLb(ws) {
 async function broadcastLb(r) {
   try { const rows = await readLb(); sendLocal(r, { t: 'lb', rows }); } catch {}
 }
+async function roundEnded(r, rows) {
+  try { await recordLb(rows); } catch {}
+  broadcastLb(r);
+  publish({ t: 'lbchg' });
+}
 
-/* ---------------- room rules: one host, kicks, limits ---------------- */
-export const LIMITS = { MSG_PER_SEC: 240, ROOM_SIZE: 16, LB_EVERY_MS: 3000 };
-const HOST_KEYS = ['h', 'g', 'gg'];
-// The host is whoever claimed it first and is still connected. Only the host may publish the game
-// (h/g/gg); a second claim is stripped and the claimant is told, so rooms cannot be hijacked.
-function activeHost(r) { return r.host && r.local.has(r.host) ? r.host : null; }
-function applyHostRules(r, me, patch, ws) {
-  const host = activeHost(r);
-  if (patch.h === 1 && !host) r.host = me;
-  if (patch.h === null && host === me) r.host = null;
-  if (activeHost(r) === me || !HOST_KEYS.some(k => k in patch)) return patch;
-  const out = { ...patch };
-  for (const k of HOST_KEYS) delete out[k];
-  if (patch.h === 1) try { ws.send(JSON.stringify({ t: 'deny', what: 'host' })); } catch {}
-  return out;
+/* ---------------- public rooms ---------------- */
+// rooms whose owner ticked "public", for the room list and quick play (GET /api/rooms)
+export function listRooms() {
+  const out = [];
+  for (const r of rooms.values()) {
+    if (!r.game.pub) continue;
+    const players = lobbyPeers(r).length;
+    if (!players) continue;
+    const o = activeOwner(r);
+    out.push({ id: r.id, n: players, md: r.game.mode, ph: r.game.g ? 'play' : 'lobby', ow: o ? nameOf(r.local.get(o)) : '' });
+  }
+  return out.sort((a, b) => (a.ph === 'lobby' ? 0 : 1) - (b.ph === 'lobby' ? 0 : 1) || b.n - a.n).slice(0, 30);
 }
-// kicked players are listed by the host (peer ids and player keys) in its published game state
-function isKicked(r, peer, by) {
-  const host = activeHost(r);
-  const kk = host && r.local.get(host).p.g && r.local.get(host).p.g.kk;
-  return Array.isArray(kk) && (kk.includes(peer) || kk.includes(by));
-}
-function enforceKicks(r) {
-  for (const [id, c] of r.local) if (id !== r.host && isKicked(r, id, c.by)) { try { c.ws.close(4001, 'kicked'); } catch {} }
+
+/* ---------------- game loop ---------------- */
+export const LIMITS = { MSG_PER_SEC: 240, ROOM_SIZE: 16 };
+let loop = null;
+function tickAll() {
+  const now = performance.now();
+  for (const r of rooms.values()) {
+    try {
+      const { msg, rows } = tickRoom(r, now);
+      if (msg) sendRaw(r, msg);
+      if (rows) roundEnded(r, rows);
+    } catch (e) { console.error('tick', r.id, e); }
+  }
 }
 
 /* ---------------- connections ---------------- */
@@ -243,6 +186,7 @@ function onConnection(ws) {
     if (now - winStart >= 1000) { winStart = now; winCount = 0; }
     if (++winCount > LIMITS.MSG_PER_SEC) { ws.close(1008, 'too many messages'); return; }
     let m; try { m = JSON.parse(data); } catch { return; }
+    if (!m || typeof m !== 'object') return;
     if (m.t === 'ping') { if (typeof m.ts === 'number') ws.send(JSON.stringify({ t: 'pong', ts: m.ts })); return; }   // round-trip time for the player list
     if (m.t === 'join') {
       if (r) return;
@@ -261,34 +205,31 @@ function onConnection(ws) {
       r = room; me = peer;
       const old = r.local.get(me);
       if (old && old.ws !== ws) { try { old.ws.close(4000, 'replaced'); } catch {} }
-      const c = { ws, by, p: {} };
-      r.local.set(me, c);   // before the host rules, so a reconnecting host can reclaim the room
-      c.p = applyHostRules(r, me, cleanPatch(m.p) || {}, ws);
+      const c = { ws, by, p: cleanPatch(m.p) || {} };
       r.local.set(me, c);
-      r.remote.delete(me);
+      onJoin(r, me);
+      if (!r.game.body) refresh(r);
       const peers = [];
-      for (const [id, x] of r.local) peers.push({ peer: id, by: x.by, p: x.p });
-      for (const [id, x] of r.remote) if (!r.local.has(id)) peers.push({ peer: id, by: x.by, p: x.p });
-      ws.send(JSON.stringify({ t: 'full', peers, by: c.by }));   // "by": the player key the server settled on for you
-      sendLocal(r, { t: 'join', peer: me, by: c.by, p: c.p }, me);
-      publish({ t: 'hello', room: roomId });
-      publish({ t: 'join', room: roomId, peer: me, by: c.by, p: c.p });
+      for (const [id, x] of r.local) peers.push({ peer: id, by: x.by, p: shared(x.p) });
+      // "by": the player key the server settled on for you; g/gg: the game as everyone else has it now
+      ws.send(JSON.stringify({ t: 'full', peers, by: c.by, g: r.game.body, gg: r.game.grid }));
+      sendLocal(r, { t: 'join', peer: me, by: c.by, p: shared(c.p) }, me);
       return;
     }
     if (!r) return;
     const c = r.local.get(me);
     if (!c || c.ws !== ws) return;
     if (m.t === 'p') {
-      let patch = cleanPatch(m.p);
+      const patch = cleanPatch(m.p);
       if (!patch) return;
-      patch = applyHostRules(r, me, patch, ws);
-      if (!Object.keys(patch).length) return;
       const next = merge(c.p, patch);
       if (JSON.stringify(next).length > MAX_PRESENCE) return;
       c.p = next;
-      sendPatch(r, me, patch);
-      if (hasRemote(r)) publish({ t: 'p', room: r.id, peer: me, by: c.by, p: patch });
-      if (me === r.host && patch.g) enforceKicks(r);
+      onPresence(r, me, patch);
+      const out = shared(patch);
+      if (Object.keys(out).length) sendLocal(r, { t: 'p', peer: me, p: out }, me);
+    } else if (m.t === 'cmd') {
+      command(r, me, m);
     } else if (m.t === 'auth') {
       const user = await verifyGoogleIdToken(m.token);
       if (ws.readyState !== 1) return;
@@ -300,13 +241,6 @@ function onConnection(ws) {
       if (isKicked(r, me, c.by)) ws.close(4001, 'kicked');
     } else if (m.t === 'lb') {
       sendLb(ws);
-    } else if (m.t === 'lbrec') {
-      // only the host reports finished rounds, and not faster than a round can possibly last
-      if (me !== activeHost(r) || now - (r.lastLb || 0) < LIMITS.LB_EVERY_MS) return;
-      r.lastLb = now;
-      try { await recordLb(m.rows); } catch {}
-      broadcastLb(r);
-      publish({ t: 'lbchg', room: r.id });
     }
   });
 
@@ -315,9 +249,8 @@ function onConnection(ws) {
     const c = r.local.get(me);
     if (c && c.ws === ws) {
       r.local.delete(me);
-      if (r.host === me) r.host = null;
+      onLeave(r, me);
       sendLocal(r, { t: 'leave', peer: me });
-      publish({ t: 'leave', room: r.id, peer: me });
       dropRoomIfEmpty(r);
     }
   });
@@ -327,6 +260,7 @@ export function attach(server) {
   // compress messages: snapshots repeat a lot between frames, so deflate with context takeover shrinks them a lot
   const wss = new WebSocketServer({ server, maxPayload: 16 * 1024, perMessageDeflate: { threshold: 64, zlibDeflateOptions: { level: 6 } } });
   wss.on('connection', onConnection);
+  if (!loop) loop = setInterval(tickAll, TICK_MS);
   const ping = setInterval(() => {
     for (const ws of wss.clients) {
       if (!ws.isAlive) { ws.terminate(); continue; }
@@ -334,6 +268,6 @@ export function attach(server) {
       try { ws.ping(); } catch {}
     }
   }, 20000);
-  wss.on('close', () => clearInterval(ping));
+  wss.on('close', () => { clearInterval(ping); clearInterval(loop); loop = null; });
   return wss;
 }

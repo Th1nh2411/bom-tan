@@ -36,40 +36,11 @@ function winnerText(s) {
   if (p && s.pl.length >= 2) return p.name + ' thắng!';
   return s.pl.length < 2 ? 'Hết ván' : 'Hòa!';
 }
-// VS Code welcome-page style: the room buttons that are showing, mirrored as links on the board
-const START_BTNS = ['hostBtn', 'startBtn', 'inviteBtn', 'localBtn'];
-function renderStart(show) {
-  const guest = !isLoggedIn();
-  const box = $('ovStart'), btns = show ? START_BTNS.map($).filter(b => !b.hidden && (!guest || b.id === 'localBtn')) : [];
-  const key = guest + btns.map(b => b.id + b.textContent).join('|');
-  box.hidden = $('ovKeys').hidden = !show;
-  if (box.dataset.key === key) return;
-  box.dataset.key = key; box.textContent = '';
-  if (!btns.length) return;
-  const h = document.createElement('h3'); h.textContent = 'Bắt đầu'; box.appendChild(h);
-  for (const b of btns) {
-    const a = document.createElement('button');
-    a.className = 'ov-link'; a.innerHTML = b.innerHTML;
-    a.onclick = () => b.click();
-    box.appendChild(a);
-  }
-  if (guest) {
-    const a = document.createElement('button');
-    a.className = 'ov-link'; a.innerHTML = googleClientId ? '<i>→</i>Đăng nhập để chơi online' : '<i>→</i>Nhập tên để chơi online';
-    a.onclick = () => {
-      if (matchMedia('(max-width:860px)').matches) setDrawer(true);   // phones: the sign-in lives in the drawer
-      // point at the Google button (a cross-origin iframe we cannot click for the user), and try Google's own prompt
-      const g = $('loginGate'); g.classList.remove('flash'); void g.offsetWidth; g.classList.add('flash');
-      if (!googleClientId) { $('gateName').focus(); return; }
-      try { google.accounts.id.prompt(); } catch (e) {}
-    };
-    box.appendChild(a);
-  }
-}
 function updateOverlay() {
   const s = snap;
   renderStats(s);
-  renderStart(mode === 'online' && !kickedOut && !roomFull && (!s || s.ph === 'lobby'));
+  renderLobby();
+  if (!lobbyEl.hidden) return setOverlay('', '');   // the lobby card has it all
   if (mode === 'local') {
     if (!s) return setOverlay('', '');
     if (s.ph === 'count') return setOverlay(String(s.tm || 1), 'P1: WASD + Space. P2: mũi tên + Enter.');
@@ -79,12 +50,7 @@ function updateOverlay() {
   if (kickedOut) return setOverlay('Bạn đã bị kick', 'Chủ phòng đã mời bạn ra khỏi phòng #' + ROOM_ID + '. Đổi mã phòng trên thanh địa chỉ để vào phòng khác.');
   if (roomFull) return setOverlay('Phòng đã đầy', 'Phòng #' + ROOM_ID + ' đã đủ người. Đổi mã phòng trên thanh địa chỉ để tạo phòng khác.');
   if (!connected && !s) return setOverlay('Bom Tấn', 'Đang kết nối tới phòng #' + ROOM_ID + '…');
-  if (!s && !isLoggedIn()) return setOverlay('Bom Tấn', (googleClientId ? 'Đăng nhập' : 'Nhập tên') + ' để chơi online, hoặc chơi 2 người trên 1 máy ngay.');
-  if (!s) return setOverlay('Bom Tấn', hostLeftNotice ? 'Chủ phòng vừa rời đi. Đang chuyển chủ phòng cho người khác…' : 'Chưa ai làm chủ phòng. Một người bấm "Làm chủ phòng", rồi gửi link mời cho cả nhóm.');
-  if (s.ph === 'lobby') {
-    const n = s.pl.length, md = (s.md === 't' ? 'Chế độ đội. ' : s.md === 'z' ? 'Chế độ zombie. ' : '');
-    return setOverlay('Sảnh chờ', md + (hosting ? `${n} người đã sẵn sàng. Bấm "Bắt đầu ván" khi đủ người.` : `${n} người đã sẵn sàng. Đợi chủ phòng bắt đầu.`));
-  }
+  if (!s) return setOverlay('Bom Tấn', 'Đang tải phòng #' + ROOM_ID + '…');
   const me = s.pl.find(p => p.id === myPeer);
   if (s.ph === 'count') {
     let sub = me ? 'Sẵn sàng!' : 'Bạn đang xem ván này, ván sau sẽ vào chơi.';
@@ -111,9 +77,8 @@ function renderList() {
   const byOf = new Map(peers().map(p => [p.peer, p.by]));
   if (s && s.pl.length) {
     rows = s.pl.map(p => ({ id: p.id, name: p.name, color: p.color, score: p.score, dead: s.ph !== 'lobby' && !p.alive && !p.downed, downed: p.downed, team: s.md === 't' ? p.team : -1 }));
-  } else if (mode === 'online' && room) {
-    rows = joinedPeers().map(p => ({ id: p.peer, name: peerName(p), color: COLORS[(p.presence.c | 0) & 7], score: 0, dead: false, team: -1 }));
   }
+  const owner = isOwner();
   $('pcount').textContent = rows.length || '';
   if (!rows.length) { const li = document.createElement('p'); li.className = 'empty'; li.textContent = 'Chưa có ai trong phòng.'; ol.appendChild(li); return; }
   rows.sort((a, b) => (a.team - b.team) || (b.score - a.score));
@@ -136,17 +101,17 @@ function renderList() {
     const tags = [];
     if (r.downed) tags.push('cần cứu!');
     if (mode === 'online' && r.id === myPeer) tags.push('bạn');
-    if (mode === 'online' && r.id === hostPeer) tags.push('chủ phòng');
+    if (mode === 'online' && s && r.id === s.ow) tags.push('chủ phòng');
     if (mode === 'online' && s && s.ph === 'play' && !r.dead && !peers().some(p => p.peer === r.id)) tags.push('mất kết nối');
     if (mode === 'online') {
       const pp = peers().find(p => p.peer === r.id), ms = r.id === myPeer ? myRtt : pp && pp.presence.rt;
       if (typeof ms === 'number' && (r.id !== myPeer || myRtt)) tags.push(ms < 5 ? '<5ms' : ms + 'ms');
     }
-    if (hosting && kicked.has(r.id)) tags.push('đã kick');
+    if (owner && s.kk.includes(r.id)) tags.push('đã kick');
     const tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = tags.join(', ');
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score; sc.title = 'Số ván thắng trong phiên này';
     li.append(dot, nmw, emo, tg, sc);
-    if (mode === 'online' && hosting && r.id !== myPeer && !kicked.has(r.id)) {
+    if (owner && r.id !== myPeer && !s.kk.includes(r.id)) {
       const kb = document.createElement('button');
       kb.className = 'kick'; kb.textContent = 'kick'; kb.dataset.kick = r.id; kb.dataset.name = r.name;
       kb.setAttribute('aria-label', 'Kick ' + r.name);
@@ -157,17 +122,11 @@ function renderList() {
   resolveProfiles(accIds);
 }
 
-function kickPeer(peer) {
-  const p = peers().find(x => x.peer === peer);
-  kicked.add(peer);
-  if (p && p.by) kicked.add(p.by);
-  if (hostGame) for (const q of hostGame.players) if (q.id === peer) { q.alive = false; q.down = 0; }
-  publishHost(true); renderList();
-}
+function kickPeer(peer) { room.cmd({ c: 'kick', peer }); }
 // the list is rebuilt every 250ms, so listen on the container and act on pointerdown (a click could lose its target)
 $('plist').addEventListener('pointerdown', e => {
   const b = e.target.closest('button.kick');
-  if (!b || !hosting) return;
+  if (!b || !isOwner()) return;
   e.preventDefault();
   if (confirm('Kick ' + b.dataset.name + ' khỏi phòng?')) kickPeer(b.dataset.kick);
 });
@@ -233,9 +192,9 @@ function updateStatus() {
   cv.style.cursor = canGhost() ? 'crosshair' : '';
   $('stMode').textContent = mode === 'local' ? 'chế độ: 1 máy' : ('chế độ: ' + MODE_NAMES[s ? s.md : 's'].toLowerCase());
   let host = '';
-  if (mode === 'online' && hostPeer) {
-    const hp = peers().find(p => p.peer === hostPeer);
-    host = 'chủ phòng: ' + (hostPeer === myPeer ? 'bạn' : (hp ? peerName(hp) : '…'));
+  if (mode === 'online' && s && s.ow) {
+    const hp = peers().find(p => p.peer === s.ow);
+    host = 'chủ phòng: ' + (s.ow === myPeer ? 'bạn' : (hp ? peerName(hp) : '…'));
   }
   $('stHost').textContent = host;
   const ph = !s ? '' : { lobby: 'sảnh chờ', count: 'đếm ngược', play: 'đang chơi', end: 'hết ván' }[s.ph];
@@ -256,19 +215,14 @@ function updateStatus() {
 }
 
 function updateUI() {
-  maybeTakeOverHost();
   $('pauseBtn').textContent = (snap && snap.pz) || coverLocal ? '▶' : '⏸';
   const online = mode === 'online';
-  $('hostBtn').hidden = !(online && room && connected && !hosting && !findHost());
-  $('startBtn').hidden = !(online && hosting && !hostGame);
-  $('modeSeg').hidden = !(online && hosting && !hostGame);
-  for (const b of $('modeSeg').children) b.setAttribute('aria-checked', b.dataset.m === hostMode ? 'true' : 'false');
-  $('lobbyBtn').hidden = !(online && hosting && hostGame);
+  // mode, ready and start live on the lobby card; mid-round the owner can stop from here
+  $('lobbyBtn').hidden = !(isOwner() && !!snap && snap.ph !== 'lobby');
   $('localBtn').lastChild.textContent = online ? 'Chơi 2 người trên 1 máy' : 'Thoát chế độ 1 máy';
   $('teamCard').hidden = !(online && snap && snap.md === 't');
   document.body.classList.toggle('local', !online);   // local mode needs no sign-in: the login gate steps aside
 }
-$('hostBtn').onclick = () => startHosting();
 $('inviteBtn').onclick = async () => {
   const btn = $('inviteBtn').lastChild, link = location.href;
   try { await navigator.clipboard.writeText(link); btn.textContent = 'Đã sao chép link phòng #' + ROOM_ID; }
@@ -276,9 +230,7 @@ $('inviteBtn').onclick = async () => {
   setTimeout(() => { btn.textContent = 'Sao chép link mời'; }, 2000);
 };
 addEventListener('hashchange', () => location.reload());
-$('modeSeg').onclick = e => { const b = e.target.closest('button[data-m]'); if (!b) return; hostMode = b.dataset.m; publishHost(true); updateUI(); };
-$('startBtn').onclick = () => { hostPz = false; hostStartRound(); publishHost(true); updateUI(); };
-$('lobbyBtn').onclick = () => { hostGame = null; publishHost(true); updateUI(); };
+$('lobbyBtn').onclick = () => room.cmd({ c: 'lobby' });
 function setDrawer(open) {
   document.body.classList.toggle('drawer-open', open);
   $('drawerBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -295,9 +247,9 @@ addEventListener('keydown', e => {
 });
 matchMedia('(max-width:860px)').addEventListener('change', e => { if (!e.matches) setDrawer(false); });
 // drop focus so player 2's Enter (bomb) does not click this button again and leave local mode
-$('localBtn').onclick = () => { $('localBtn').blur(); if (mode === 'online') { if (hosting) stopHosting(); startLocal(); } else stopLocal(); updateUI(); };
+$('localBtn').onclick = () => { $('localBtn').blur(); if (mode === 'online') startLocal(); else stopLocal(); updateUI(); };
 $('gateExitBtn').onclick = () => { $('gateExitBtn').blur(); stopLocal(); updateUI(); };
-$('gateLocalBtn').onclick = () => { $('gateLocalBtn').blur(); setDrawer(false); if (hosting) stopHosting(); startLocal(); updateUI(); };
+$('gateLocalBtn').onclick = () => { $('gateLocalBtn').blur(); setDrawer(false); startLocal(); updateUI(); };
 // touch screens have no Esc / ` keys: one button toggles the pause
 $('pauseBtn').onclick = () => { setPause(!((snap && snap.pz) || coverLocal)); updateUI(); };
 
