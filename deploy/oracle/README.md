@@ -1,11 +1,20 @@
 # Chạy Bom Tấn trên Oracle Cloud Free (Singapore)
 
-Từ Việt Nam, Render luôn có ping khoảng 100ms: traffic đi qua Cloudflare Hong Kong rồi mới tới Singapore. VM Oracle ở Singapore có IP đi thẳng, ping thường 30–50ms.
+Từ Việt Nam, Render có ping khoảng 100ms: traffic đi qua Cloudflare Hong Kong rồi mới tới Singapore. VM Oracle không qua proxy nên nhanh hơn, nhưng mức nhanh tùy nhà mạng. Đo từ VNPT (10/2026), thời gian kết nối TCP:
+
+| Region Oracle | Ping |
+|---|---|
+| `ap-batam-1` (Indonesia, sát Singapore) | ~50ms |
+| `ap-singapore-1`, `ap-singapore-2` | ~75ms (VNPT cũng vòng qua Hong Kong) |
+| `ap-seoul-1` | ~80ms |
+| `ap-tokyo-1`, `ap-osaka-1` | ~100ms |
+
+Trước khi chọn region, nhờ người chơi ở các nhà mạng khác (Viettel, FPT) đo thử: `curl -o /dev/null -s -w '%{time_connect}\n' https://objectstorage.<region>.oraclecloud.com/`.
 
 ## 1. Tạo tài khoản
 
 - Đăng ký tại https://signup.cloud.oracle.com (cần thẻ để xác minh, không bị trừ tiền).
-- **Home Region chọn `Singapore`.** Tài nguyên Always Free chỉ có ở home region, và không đổi được về sau.
+- **Home Region chọn region ping thấp nhất** trong bảng trên: Batam nếu có trong danh sách, không thì Singapore. Tài nguyên Always Free chỉ có ở home region, và không đổi được về sau.
 - Nên nâng lên **Pay As You Go** (vẫn free nếu dùng trong hạn mức Always Free). Tài khoản chỉ Free sẽ bị Oracle thu hồi VM nếu máy "rảnh" 7 ngày liền (CPU dưới 20%), mà server game thì phần lớn thời gian là rảnh.
 
 ## 2. Tạo VM

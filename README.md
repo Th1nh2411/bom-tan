@@ -108,7 +108,7 @@ Giới hạn của gói miễn phí:
 
 ## Deploy lên Oracle Cloud Free (ping thấp hơn)
 
-VM Singapore miễn phí có IP đi thẳng, ping từ Việt Nam thường 30–50ms. Một lệnh cài Node, Redis, HTTPS và chạy game: xem [deploy/oracle/README.md](deploy/oracle/README.md).
+VM miễn phí, không qua proxy. Đo từ VNPT: region Batam khoảng 50ms, Singapore khoảng 75ms (Render khoảng 100ms). Một lệnh cài Node, Redis, HTTPS và chạy game: xem [deploy/oracle/README.md](deploy/oracle/README.md).
 
 ## Đăng nhập Google (tuỳ chọn)
 
@@ -142,7 +142,7 @@ npm test
 
 - **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã là vào sân tập, chưa vào phòng nào.
 - **Bảng xếp hạng có thêm kỷ lục hợp tác:** đợt xa nhất (Sinh tồn), ải xa nhất (Đi ải) và số boss đã hạ.
-- **Ping phụ thuộc đường đi tới server.** Render (Singapore, qua proxy Cloudflare Hong Kong): từ Việt Nam khoảng 100 ms. VM Oracle Singapore có IP đi thẳng: khoảng 30–50 ms. Gói miễn phí của Render dùng CPU chia sẻ và ngủ khi không có ai.
+- **Ping phụ thuộc đường đi tới server.** Render (Singapore, qua proxy Cloudflare Hong Kong): từ Việt Nam khoảng 100 ms. VM Oracle không qua proxy: Batam khoảng 50 ms, Singapore khoảng 75 ms (đo từ VNPT; nhà mạng khác có thể khác). Chơi qua LAN là thấp nhất. Gói miễn phí của Render dùng CPU chia sẻ và ngủ khi không có ai.
 - **Bảng xếp hạng dùng chung cho mọi phòng**, và nhận diện người chơi theo trình duyệt, không cần đăng nhập. Đổi trình duyệt thì được tính là người mới.
 - **Sau khi cập nhật code, mọi người phải tải lại trang.** Trình duyệt và server cần cùng phiên bản.
 - **Phím tắt:**
