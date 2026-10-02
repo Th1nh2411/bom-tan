@@ -2,10 +2,17 @@
 
 Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 người mỗi ván. Giao diện giả làm cửa sổ VS Code để chơi kín đáo.
 
-**Chế độ chơi:**
+**Chế độ đối kháng:**
 - Solo.
 - Đội: cứu được đồng đội bị hạ.
 - Zombie: một người bắt đầu là zombie và lây cho người khác.
+- Săn boss: một người làm boss nhiều mạng, gọi được quái; cả nhóm săn nó trong 2 phút.
+
+**Chế độ hợp tác (đánh quái):**
+- Sinh tồn: quái kéo đến theo đợt, cứ 5 đợt có boss; giữa các đợt mua đồ bằng xu.
+- Đánh boss: 4 boss 2×2 (Vua Bom, Rồng Lửa, Người Đá, Hồn Ma), mỗi con một kiểu đánh, có báo trước; còn nửa máu thì nổi giận.
+- Đi ải: 10 ải, ải 5 và 10 là boss; diệt hết quái rồi tìm cửa ra giấu dưới thùng.
+- 5 loại quái: nhầy, dơi, ma (xuyên thùng), quỷ con (né bom), giáp sắt (3 máu).
 
 **Luật chơi:**
 - Cổng dịch chuyển; lửa bom cũng đi xuyên qua cổng.
@@ -27,6 +34,7 @@ public/
   index.html        Khung trang
   css/style.css     Giao diện
   js/engine.js      Luật chơi, không dùng DOM (có test)
+  js/pve.js         Quái, boss, đợt, ải, săn boss (chỉ server chạy; có test)
   js/common.js      Hằng số, hàm dùng chung
   js/sound.js       Âm thanh tổng hợp, không cần file
   js/input.js       Bàn phím, chuột, cảm ứng
@@ -35,11 +43,11 @@ public/
   js/render.js      Vòng lặp chính, vẽ canvas
   js/progress.js    Thành tích, mũ, thông báo
   js/auth.js        Đăng nhập Google (tuỳ chọn)
-  js/lobby.js       Màn hình chính và sảnh chờ
+  js/lobby.js       Sidebar: vào phòng, sảnh chờ, người chơi, phòng công khai
   js/ui.js          Overlay, danh sách người chơi, nút bấm
 server.js           Phục vụ public/ và WebSocket ở /api/ws, kiểm tra sống ở /healthz
 server/relay.js     Kết nối WebSocket, phòng, bảng xếp hạng
-server/game.js      Chạy engine.js trên server cho từng phòng
+server/game.js      Chạy engine.js + pve.js trên server cho từng phòng
 server/auth.js      Kiểm tra token Google, cấp phiên đăng nhập
 test/               Test cho engine và relay (node --test)
 render.yaml         Cấu hình deploy lên Render
@@ -51,6 +59,7 @@ Các file trong `public/js/` là script thường, nạp theo thứ tự trong `
 
 - **Server chạy luật chơi.** Mỗi phòng có một ván chạy trên server (`server/game.js` dùng chung `public/js/engine.js` với trình duyệt), khoảng 60 lần/giây. Mỗi thao tác chỉ mất 1 vòng client ↔ server, và không phụ thuộc mạng của ai khác trong phòng.
 - **Trình duyệt dự đoán vị trí.** Bạn thấy mình di chuyển ngay khi bấm phím; server kiểm tra vị trí gửi lên (không cho chạy nhanh hơn tốc độ, xuyên tường) và kéo về nếu lệch.
+- **Chưa vào phòng thì ở sân tập.** Mở trang không có `#mã-phòng` là vào sân tập: tự đi lại, đặt bom để làm quen phím; sidebar có Chơi nhanh, Tạo phòng, nhập mã phòng và danh sách phòng công khai. Trong sảnh chờ cũng là sân tập riêng của mỗi người cho tới khi ván bắt đầu.
 - **Sẵn sàng là vào chơi.** Trong sảnh chờ ai cũng bấm "Sẵn sàng"; khi tất cả (từ 2 người) đã sẵn sàng thì ván tự bắt đầu sau 3 giây. Ai tick "Tự sẵn sàng ván mới" thì hết ván được đánh dấu sẵn sàng luôn, nên cả phòng cùng tick là chơi liên tục.
 - **Chủ phòng** chọn chế độ, bấm "Bắt đầu ngay" (không đợi ai), dừng ván, kick, và bật "Phòng công khai". Người đăng nhập vào phòng đầu tiên làm chủ phòng; chủ phòng rời đi thì người kế tiếp thay sau 1,5 giây, ván đang chơi vẫn tiếp tục.
 - **Phòng công khai** hiện trong danh sách ở màn hình chính và sảnh chờ (`GET /api/rooms`). "Chơi nhanh" vào phòng công khai đông nhất còn chỗ; chưa có phòng nào thì mở công khai phòng hiện tại.
@@ -110,13 +119,15 @@ Cần biết:
 npm test
 ```
 
+- **Test PvE** (`test/pve.test.js`): quái chết và trả xu, quái chạm làm hạ gục, đợt và cửa hàng, boss chỉ mất máu vì bom người chơi và nổi giận, 4 kiểu tấn công có báo trước, cửa ra và qua ải, săn boss.
 - **Test engine** (`test/engine.test.js`): kích thước map, vị trí spawn, vụ nổ, lửa qua cổng, khiên, rơi đồ khi chết, vùng bo, bom của người đã chết, thống kê cuối ván.
 - **Test relay** (`test/relay.test.js`): server chạy ván, sẵn sàng và tự bắt đầu, phòng công khai, chọn chủ phòng và chuyển chủ phòng, chỉ chủ phòng ra lệnh, điều khiển không bị chuyển cho người khác, kick, ghi bảng xếp hạng, giới hạn phòng, chống spam.
 - **Test đăng nhập** (`test/auth.test.js`): kiểm tra token Google (dùng khóa giả), phiên đăng nhập, chống giả mạo mã người chơi.
 
 ## Những điều cần biết
 
-- **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã thì game tự tạo phòng mới.
+- **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã là vào sân tập, chưa vào phòng nào.
+- **Bảng xếp hạng có thêm kỷ lục hợp tác:** đợt xa nhất (Sinh tồn), ải xa nhất (Đi ải) và số boss đã hạ.
 - **Ping phụ thuộc vị trí server.** Server Render ở Singapore: từ Việt Nam khoảng 30–50 ms. Gói miễn phí dùng CPU chia sẻ và ngủ khi không có ai; gói trả phí ổn định hơn.
 - **Bảng xếp hạng dùng chung cho mọi phòng**, và nhận diện người chơi theo trình duyệt, không cần đăng nhập. Đổi trình duyệt thì được tính là người mới.
 - **Sau khi cập nhật code, mọi người phải tải lại trang.** Trình duyệt và server cần cùng phiên bản.

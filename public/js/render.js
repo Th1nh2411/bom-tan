@@ -9,7 +9,8 @@ function simulate(now) {
     if (localGame.ph === 'end' && localGame.timer <= 0) localGame = newGame(localSlots(), false);
     setSnap(sanitizeSnap(snapshot(localGame, scores)));
   } else {
-    predictStep(dt);
+    if (mode === 'online' && !practice && (!ROOM_ID || !net || net.ph === 'lobby')) startPractice();
+    if (practice) stepPractice(dt); else predictStep(dt);
   }
   return dt;
 }
@@ -140,6 +141,7 @@ function draw(dt) {
     }
   }
   if (!s) return;
+  drawPveFloor(s, now);
 
   for (const i of s.fl) {
     const x = i % W, y = (i / W) | 0, px = x * T, py = y * T;
@@ -168,6 +170,7 @@ function draw(dt) {
   }
   for (const id of [...bombDisp.keys()]) if (!seenB.has(id)) bombDisp.delete(id);
 
+  drawMobs(s, dt, now);
   const seen = new Set();
   for (const p of s.pl) {
     seen.add(p.id);
@@ -182,7 +185,7 @@ function draw(dt) {
     const dir = isMe && pred ? pred.dir : p.dir;
     if (!p.alive && !p.downed) ctx.globalAlpha = .35;
     if (p.alive && p.inv) ctx.globalAlpha = (now / 90 | 0) % 2 ? .45 : 1;
-    const cx = d.x * T + T / 2, cy = d.y * T + T / 2, r = T * .34;
+    const cx = d.x * T + T / 2, cy = d.y * T + T / 2, r = T * .34 * (p.boss ? 1.25 : 1);   // the boss in boss hunt is bigger
     if (p.downed) {
       const frac = Math.min(1, p.downT / DOWN_T), rr2 = r + T * .15;
       ctx.lineWidth = Math.max(2, T * .08);
@@ -195,7 +198,7 @@ function draw(dt) {
     ctx.fillStyle = p.zb ? ZOMBIE_COLOR : p.color; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1.5, T * .07);
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
     if (isMe) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, T * .04); ctx.beginPath(); ctx.arc(cx, cy, r + T * .08, 0, 7); ctx.stroke(); }
-    if (p.hat) drawHat(p.hat, cx, cy, r);
+    if (p.hat || p.boss) drawHat(p.boss ? 'crown' : p.hat, cx, cy, r);
     if (p.ck && p.alive) {
       // cursed: a dashed ring that spins, plus a small skull
       ctx.save(); ctx.setLineDash([T * .08, T * .07]); ctx.lineDashOffset = -now / 40;
@@ -239,4 +242,151 @@ function draw(dt) {
     }
   }
   for (const id of [...disp.keys()]) if (!seen.has(id)) disp.delete(id);
+  if (s.bo) drawBoss(s.bo, now);
+  for (const p of s.pl) if (p.boss && p.alive) {
+    // lives over the boss player's head
+    const d = disp.get(p.id) || p, cx = d.x * T + T / 2, cy = d.y * T + T / 2;
+    ctx.font = `600 ${Math.max(10, Math.round(T * .3))}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = '#c77f8c'; ctx.fillText('♥'.repeat(Math.min(p.hp, 8)), cx, cy + T * .5);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // HUD: no screen shake
+  drawPveHud(s, now);
+}
+
+/* ---------- co-op and boss modes: monsters, bosses, warnings, the exit, banners ---------- */
+const MOB_COLORS = ['#8fac7a', '#9d8fbf', '#d8d4e8', '#c77f8c', '#86adc0'];
+const BOSS_COLORS = ['#3a3a3a', '#c08a62', '#8a8f96', '#b9b0d8'];
+const BOSS_LABELS = ['Vua Bom', 'Rồng Lửa', 'Người Đá', 'Hồn Ma'];
+const UI_FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';   // text on the board (the emoji font spaces Vietnamese oddly)
+const mobDisp = new Map();
+function drawPveFloor(s, now) {
+  // the exit door (campaign): dark while monsters are left, glowing once it opens
+  if (s.ex) {
+    const x = (s.ex.i % W) * T, y = ((s.ex.i / W) | 0) * T;
+    ctx.fillStyle = '#151515'; rr(x + T * .14, y + T * .08, T * .72, T * .86, T * .1); ctx.fill();
+    ctx.strokeStyle = s.ex.open ? '#8fac7a' : '#4a4a4a'; ctx.lineWidth = Math.max(2, T * .07); ctx.stroke();
+    if (s.ex.open) {
+      ctx.fillStyle = `rgba(143,172,122,${.35 + Math.sin(now / 150) * .2})`; rr(x + T * .2, y + T * .14, T * .6, T * .74, T * .08); ctx.fill();
+      ctx.fillStyle = '#e6f0dc'; ctx.font = `700 ${Math.round(T * .4)}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⇧', x + T / 2, y + T / 2 + Math.sin(now / 200) * T * .05);
+    }
+  }
+  // boss attack warnings: the cells that are about to be hit
+  if (s.wn.length) {
+    const a = .28 + Math.sin(now / 70) * .14;
+    ctx.fillStyle = `rgba(199,90,100,${a})`; ctx.strokeStyle = 'rgba(230,120,130,.8)'; ctx.lineWidth = Math.max(1, T * .04);
+    for (const i of s.wn) { const x = (i % W) * T, y = ((i / W) | 0) * T; ctx.fillRect(x + 1, y + 1, T - 2, T - 2); ctx.strokeRect(x + T * .1, y + T * .1, T * .8, T * .8); }
+  }
+  // monsters about to appear
+  for (const i of s.sw) {
+    const cx = (i % W) * T + T / 2, cy = ((i / W) | 0) * T + T / 2, r = T * (.18 + ((now / 400) % 1) * .22);
+    ctx.strokeStyle = 'rgba(157,143,191,.9)'; ctx.lineWidth = Math.max(1.5, T * .05);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, T * .38, 0, 7); ctx.setLineDash([T * .1, T * .08]); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function drawMobs(s, dt, now) {
+  const seen = new Set();
+  for (const m of s.mb) {
+    seen.add(m.id);
+    let d = mobDisp.get(m.id);
+    if (!d || Math.hypot(d.x - m.x, d.y - m.y) > 2) { d = { x: m.x, y: m.y }; mobDisp.set(m.id, d); }
+    const k = Math.min(1, dt * 22); d.x += (m.x - d.x) * k; d.y += (m.y - d.y) * k;
+    drawMob(m, d.x * T + T / 2, d.y * T + T / 2, now);
+  }
+  for (const id of [...mobDisp.keys()]) if (!seen.has(id)) mobDisp.delete(id);
+}
+function drawMob(m, cx, cy, now) {
+  const r = T * .32;
+  ctx.save();
+  ctx.fillStyle = '#00000055'; ctx.beginPath(); ctx.ellipse(cx, cy + T * .32, T * .26, T * .07, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = m.hit ? '#ffffff' : MOB_COLORS[m.k]; ctx.strokeStyle = '#181818'; ctx.lineWidth = Math.max(1.5, T * .06);
+  if (m.k === 0) {            // slime: a squishy dome
+    const sq = 1 + Math.sin(now / 160 + m.id) * .08;
+    ctx.beginPath(); ctx.ellipse(cx, cy + r * .45, r * 1.1 * sq, r * 1.05 / sq, 0, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (m.k === 1) {     // bat: flapping wings
+    const f = Math.sin(now / 70 + m.id) * .5;
+    ctx.beginPath();
+    for (const sd of [-1, 1]) { ctx.moveTo(cx + sd * r * .5, cy); ctx.lineTo(cx + sd * r * 1.5, cy - r * (.6 + f)); ctx.lineTo(cx + sd * r * 1.1, cy + r * .35); ctx.closePath(); }
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * .75, 0, 7); ctx.fill(); ctx.stroke();
+  } else if (m.k === 2) {     // ghost: a floating sheet
+    ctx.globalAlpha = .8;
+    const bob = Math.sin(now / 300 + m.id) * T * .05, base = cy + r * .85 + bob;
+    ctx.beginPath(); ctx.arc(cx, cy - r * .15 + bob, r, Math.PI, 0); ctx.lineTo(cx + r, base);
+    for (let k = 0; k < 4; k++) ctx.lineTo(cx + r - (k + .5) * r / 2, base - (k % 2 ? 0 : r * .25)), ctx.lineTo(cx + r - (k + 1) * r / 2, base);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (m.k === 3) {     // imp: horns
+    ctx.beginPath();
+    for (const sd of [-1, 1]) { ctx.moveTo(cx + sd * r * .35, cy - r * .65); ctx.lineTo(cx + sd * r * .8, cy - r * 1.35); ctx.lineTo(cx + sd * r * .85, cy - r * .35); ctx.closePath(); }
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * .85, 0, 7); ctx.fill(); ctx.stroke();
+  } else {                    // tank: an armoured block, one pip per hit left
+    rr(cx - r, cy - r, r * 2, r * 2, r * .35); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#181818';
+    for (let k = 0; k < m.hp; k++) ctx.fillRect(cx - r * .62 + k * r * .45, cy + r * .45, r * .3, r * .22);
+  }
+  const ex = [0, 1, 0, -1][m.dir] * r * .25, ey = [-1, 0, 1, 0][m.dir] * r * .2;
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx - r * .3 + ex, cy - r * .05 + ey, r * .2, 0, 7); ctx.arc(cx + r * .3 + ex, cy - r * .05 + ey, r * .2, 0, 7); ctx.fill();
+  ctx.fillStyle = '#181818'; ctx.beginPath(); ctx.arc(cx - r * .3 + ex * 1.4, cy - r * .05 + ey * 1.4, r * .09, 0, 7); ctx.arc(cx + r * .3 + ex * 1.4, cy - r * .05 + ey * 1.4, r * .09, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawBoss(b, now) {
+  const cx = (b.x + .5) * T, cy = (b.y + .5) * T, R = T * .92 * (1 + Math.sin(now / (b.ph === 2 ? 90 : 220)) * .03);
+  ctx.save();
+  ctx.globalAlpha = b.vis ? 1 : .18;   // the wraith fades out between appearances
+  ctx.fillStyle = '#00000066'; ctx.beginPath(); ctx.ellipse(cx, cy + R * .95, R * .8, R * .18, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = b.hit ? '#ffffff' : BOSS_COLORS[b.k]; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, T * .08);
+  if (b.k === 0) {            // Vua Bom: a giant bomb with a crown and a lit fuse
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffffff33'; ctx.beginPath(); ctx.arc(cx - R * .4, cy - R * .35, R * .2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#bfa377'; ctx.beginPath();
+    ctx.moveTo(cx - R * .55, cy - R * .78); ctx.lineTo(cx - R * .55, cy - R * 1.25); ctx.lineTo(cx - R * .28, cy - R * 1.0); ctx.lineTo(cx, cy - R * 1.35);
+    ctx.lineTo(cx + R * .28, cy - R * 1.0); ctx.lineTo(cx + R * .55, cy - R * 1.25); ctx.lineTo(cx + R * .55, cy - R * .78); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = (now / 80 | 0) % 2 ? '#d6c28e' : '#c77f8c'; ctx.beginPath(); ctx.arc(cx + R * .85, cy - R * .7, T * .1, 0, 7); ctx.fill();
+  } else if (b.k === 1) {     // Rồng Lửa: a spiky head
+    ctx.beginPath();
+    for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2, rr2 = k % 2 ? R : R * 1.22; ctx.lineTo(cx + Math.cos(a) * rr2, cy + Math.sin(a) * rr2); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e6ddc8'; ctx.beginPath(); ctx.ellipse(cx, cy + R * .45, R * .45, R * .22, 0, 0, 7); ctx.fill();
+  } else if (b.k === 2) {     // Người Đá: a cracked stone block
+    rr(cx - R, cy - R, R * 2, R * 2, R * .25); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#5a5e64'; ctx.lineWidth = Math.max(1.5, T * .05); ctx.beginPath();
+    ctx.moveTo(cx - R * .7, cy - R * .2); ctx.lineTo(cx - R * .3, cy + R * .1); ctx.lineTo(cx - R * .45, cy + R * .6);
+    ctx.moveTo(cx + R * .5, cy - R * .8); ctx.lineTo(cx + R * .25, cy - R * .4); ctx.stroke();
+  } else {                    // Hồn Ma: a big sheet
+    const base = cy + R * .9;
+    ctx.beginPath(); ctx.arc(cx, cy - R * .1, R, Math.PI, 0); ctx.lineTo(cx + R, base);
+    for (let k = 0; k < 6; k++) ctx.lineTo(cx + R - (k + .5) * R / 3, base - (k % 2 ? 0 : R * .25)), ctx.lineTo(cx + R - (k + 1) * R / 3, base);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // eyes: red and frowning when enraged
+  const ang = b.ph === 2;
+  ctx.fillStyle = ang ? '#e07a86' : '#fff';
+  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + sd * R * .35, cy - R * .1, R * .17, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#111';
+  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + sd * R * .33, cy - R * .07, R * .08, 0, 7); ctx.fill(); }
+  if (ang) { ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, T * .07); ctx.beginPath(); for (const sd of [-1, 1]) { ctx.moveTo(cx + sd * R * .55, cy - R * .42); ctx.lineTo(cx + sd * R * .15, cy - R * .25); } ctx.stroke(); }
+  ctx.restore();
+}
+function drawPveHud(s, now) {
+  const bw = W * T;
+  if (s.bo) {
+    // boss health bar along the top
+    const w = Math.min(bw * .6, T * 9), x = (bw - w) / 2, y = T * .22, h = Math.max(6, T * .2);
+    ctx.fillStyle = 'rgba(17,17,17,.85)'; rr(x - 4, y - 4, w + 8, h + 8 + T * .34, 4); ctx.fill();
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x, y + T * .34, w, h);
+    ctx.fillStyle = s.bo.ph === 2 ? '#c75a64' : '#c08a62'; ctx.fillRect(x, y + T * .34, w * s.bo.hp / s.bo.max, h);
+    ctx.fillStyle = '#e8e8e8'; ctx.font = `600 ${Math.max(10, Math.round(T * .27))}px ${UI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(BOSS_LABELS[s.bo.k] + (s.bo.ph === 2 ? ' · nổi giận' : '') + (s.bo.vis ? '' : ' · đang ẩn'), bw / 2, y - 1);
+  }
+  if (s.bn && s.ph === 'play') {
+    // event banner: wave, stage, boss phase...
+    const fs = Math.max(13, Math.round(T * .5)), y = H * T * .3;
+    ctx.font = `700 ${fs}px ${UI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(s.bn).width;
+    ctx.fillStyle = 'rgba(17,17,17,.78)'; rr(bw / 2 - tw / 2 - fs * .8, y - fs * .9, tw + fs * 1.6, fs * 1.8, fs * .4); ctx.fill();
+    ctx.fillStyle = '#f0e6c8'; ctx.fillText(s.bn, bw / 2, y);
+  }
 }

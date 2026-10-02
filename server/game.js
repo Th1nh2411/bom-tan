@@ -7,10 +7,11 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const SRC = readFileSync(new URL('../public/js/engine.js', import.meta.url), 'utf8');
 const ctx = vm.createContext({});
-vm.runInContext(SRC, ctx, { filename: 'engine.js' });
-const E = vm.runInContext('({ get W() { return W; }, get H() { return H; }, get emptyGrid() { return emptyGrid; }, setDims, sizeFor, newGame, stepGame, snapshot, ghostDrop })', ctx);
+for (const f of ['engine.js', 'pve.js']) vm.runInContext(readFileSync(new URL('../public/js/' + f, import.meta.url), 'utf8'), ctx, { filename: f });
+const E = vm.runInContext('({ get W() { return W; }, get H() { return H; }, get emptyGrid() { return emptyGrid; }, setDims, sizeFor, newGame, stepGame, snapshot, ghostDrop, buyItem, STAGES })', ctx);
+const MODES = ['s', 't', 'z', 'h', 'v', 'b', 'c'];
+const COOP = new Set(['v', 'b', 'c']);
 
 export const TICK_MS = 16;            // ~60 ticks a second; each tick steps the game and sends what changed
 const RECONNECT_MS = 5000;           // a dropped player gets this long to come back before they are out
@@ -30,6 +31,7 @@ export function newRoomGame() {
     owner: null, ownerGoneAt: 0, missing: new Map(), last: 0,
     ready: new Set(), startAt: 0, startIn: -1,   // lobby: who is ready, and the auto-start countdown
     pub: false,                                   // listed in the public room list
+    stage: 1, unlocked: 1,                        // campaign: start stage, and the furthest stage reached here
     body: null, bodyStr: '', grid: ''   // the last snapshot sent: diffs are made against it
   };
 }
@@ -95,7 +97,7 @@ function startRound(r) {
     slots = [];
     for (let k = 0; k < Math.max(t0.length, t1.length); k++) { if (t0[k]) slots.push(t0[k]); if (t1[k]) slots.push(t1[k]); }
   }
-  gs.g = E.newGame(slots, gs.mode === 't', { mode: gs.mode });
+  gs.g = E.newGame(slots, gs.mode === 't', { mode: gs.mode, stage: gs.stage });
   gs.gw = E.W; gs.gh = E.H; gs.pz = false; gs.missing.clear(); gs.startAt = 0;
 }
 
@@ -105,13 +107,19 @@ function inputsOf(r) {
     const pr = c.p;
     const o = { dx: clampDir(pr.dx), dy: clampDir(pr.dy), b: typeof pr.b === 'number' ? pr.b : 0, bc: typeof pr.bc === 'number' ? pr.bc | 0 : -1 };
     if (typeof pr.px === 'number' && typeof pr.py === 'number') { o.px = pr.px; o.py = pr.py; o.pd = pr.pd | 0; o.tp = pr.tp | 0; o.pr = pr.pr | 0; }
+    if (typeof pr.sk === 'number') o.sk = pr.sk | 0;   // skill key (the boss in boss hunt)
     inp[peer] = o;
   }
   return inp;
 }
 
-// leaderboard rows for a finished round (rounds with fewer than 2 players do not count)
+// leaderboard rows for a finished round. Co-op rounds keep each player's best wave / stage and boss kills;
+// versus rounds with fewer than 2 players do not count.
 function roundRows(g) {
+  if (COOP.has(g.mode)) {
+    const rows = g.players.filter(p => p.uid).map(p => ({ by: p.uid, n: p.name, pve: 1, wv: g.wave || 0, stg: g.mode === 'c' ? g.stage + (g.won ? 1 : 0) - 1 : 0, bk: g.mode === 'b' && g.winner === 'win' ? 1 : 0 }));
+    return rows.length ? rows : null;
+  }
   if (g.players.length < 2) return null;
   const win = new Set(g.winnerIds);
   const rows = g.players.filter(p => p.uid).map(p => ({
@@ -144,7 +152,7 @@ export function refresh(r) {
   if (gs.kicked.size) raw.kk = [...gs.kicked];
   raw.ow = activeOwner(r) || '';
   raw.pb = gs.pub ? 1 : 0;
-  if (!gs.g) { raw.rd = [...gs.ready]; raw.sa = gs.startIn; }
+  if (!gs.g) { raw.rd = [...gs.ready]; raw.sa = gs.startIn; raw.cs = gs.stage; raw.cu = gs.unlocked; }
   // the grid travels on its own and only when it changes
   const { g: grid, ...body } = raw;
   const bodyStr = JSON.stringify(body);
@@ -176,7 +184,10 @@ export function tickRoom(r, now) {
         else if (now - gs.missing.get(p.id) > RECONNECT_MS) { p.alive = false; gs.missing.delete(p.id); }
       }
       E.stepGame(g, inputs, dt, gs.scores);
-      if (g.justEnded) rows = roundRows(g);
+      if (g.justEnded) {
+        rows = roundRows(g);
+        if (g.mode === 'c') gs.unlocked = Math.min(E.STAGES.length, Math.max(gs.unlocked, g.stage));
+      }
       if (g.ph === 'end' && g.timer <= 0) backToLobby(r);
     }
   } else {
@@ -197,12 +208,14 @@ export function command(r, me, m) {
   if (!c) return;
   if (m.c === 'pause') { gs.pz = !!m.on; if (gs.pz) gs.pzBy = nameOf(c); return; }
   if (m.c === 'ready') { if (!gs.g && c.p.li === 1) { if (m.on) gs.ready.add(me); else gs.ready.delete(me); } return; }
+  if (m.c === 'buy') { if (gs.g && typeof m.item === 'string') E.buyItem(gs.g, me, m.item); return; }
   if (m.c === 'ghost') {
     if (gs.g && !gs.pz && Number.isInteger(m.cell)) { E.setDims(gs.gw, gs.gh); E.ghostDrop(gs.g, me, m.cell); }
     return;
   }
   if (me !== activeOwner(r)) return;
-  if (m.c === 'mode') { if (!gs.g && (m.m === 's' || m.m === 't' || m.m === 'z')) gs.mode = m.m; }
+  if (m.c === 'mode') { if (!gs.g && MODES.includes(m.m)) gs.mode = m.m; }
+  else if (m.c === 'stage') { const n = m.n | 0; if (!gs.g && n >= 1 && n <= gs.unlocked) gs.stage = n; }
   else if (m.c === 'start') { if (!gs.g) { gs.ready.add(me); startRound(r); } }   // the owner can start without waiting for everyone
   else if (m.c === 'lobby') { if (gs.g) backToLobby(r); }
   else if (m.c === 'public') gs.pub = !!m.on;

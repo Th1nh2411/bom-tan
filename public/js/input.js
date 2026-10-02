@@ -16,7 +16,6 @@ COLORS.forEach((c, k) => {
   swWrap.appendChild(b);
 });
 $('name').addEventListener('input', () => { myName = cleanName($('name').value) || 'Ẩn danh'; store('bt-name', myName); pushMe(); });
-$('joinChk').addEventListener('change', e => { joined = e.target.checked; pushMe(); });
 function syncTeamBtns() { $('team0').setAttribute('aria-pressed', myTeam === 0 ? 'true' : 'false'); $('team1').setAttribute('aria-pressed', myTeam === 1 ? 'true' : 'false'); }
 [0, 1].forEach(t => $('team' + t).onclick = () => { myTeam = t; store('bt-team', String(t)); syncTeamBtns(); pushMe(); });
 syncTeamBtns();
@@ -40,9 +39,9 @@ function sendEmote(k) {
 }
 
 /* ---------- input controllers ---------- */
-function makeCtl() { return { held: [], b: 0, bc: -1 }; }
+function makeCtl() { return { held: [], b: 0, bc: -1, sk: 0 }; }
 const ctlA = makeCtl(), ctlB = makeCtl();
-const ctlDir = c => { const d = c.held[c.held.length - 1]; return { dx: d ? d[0] : 0, dy: d ? d[1] : 0, b: c.b, bc: c.bc }; };
+const ctlDir = c => { const d = c.held[c.held.length - 1]; return { dx: d ? d[0] : 0, dy: d ? d[1] : 0, b: c.b, bc: c.bc, sk: c.sk }; };
 function press(c, key, d) { if (!c.held.some(h => h[2] === key)) c.held.push([d[0], d[1], key]); inputChanged(); }
 function release(c, key) { const n = c.held.length; c.held = c.held.filter(h => h[2] !== key); if (n !== c.held.length) inputChanged(); }
 function bombPress(c) { c.b++; c.bc = (c === ctlA && pred) ? idx(Math.round(pred.x), Math.round(pred.y)) : -1; inputChanged(); }
@@ -51,7 +50,6 @@ const KEYS_A = { KeyW: [0,-1], KeyS: [0,1], KeyA: [-1,0], KeyD: [1,0] };
 const KEYS_B = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0] };
 
 addEventListener('keydown', e => {
-  if (mode !== 'local' && typeof isLoggedIn === 'function' && !isLoggedIn()) return;   // 2 players on 1 machine need no sign-in
   if (!authed) return;
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const local = mode === 'local';
@@ -63,6 +61,7 @@ addEventListener('keydown', e => {
     if (!e.repeat) bombPress(local ? ctlB : ctlA); e.preventDefault();
   }
   else if (/^Digit[1-6]$/.test(e.code) && !e.repeat) sendEmote(Number(e.code.slice(5)) - 1);
+  else if (e.code === 'KeyE' && !e.repeat && !local) { ctlA.sk++; inputChanged(); }   // skill (the boss in boss hunt)
 });
 addEventListener('keyup', e => {
   if (KEYS_A[e.code]) release(ctlA, e.code);
@@ -76,6 +75,7 @@ document.querySelectorAll('.dpad button').forEach(btn => {
   btn.addEventListener('pointerdown', e => { e.preventDefault(); btn.setPointerCapture(e.pointerId); btn.classList.add('on'); press(ctlA, key, d); });
   btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up); btn.addEventListener('lostpointercapture', up);
 });
+$('skillBtn').addEventListener('pointerdown', e => { e.preventDefault(); ctlA.sk++; inputChanged(); });
 const bombBtn = $('bombBtn');
 bombBtn.addEventListener('pointerdown', e => { e.preventDefault(); bombBtn.classList.add('on'); bombPress(ctlA); });
 ['pointerup','pointercancel','pointerleave'].forEach(t => bombBtn.addEventListener(t, () => bombBtn.classList.remove('on')));
@@ -93,8 +93,8 @@ function setMouseDir(d) {
 }
 function myPos() {
   if (!snap || (snap.ph !== 'play' && snap.ph !== 'count')) return null;
-  if (mode === 'online') return pred ? { x: pred.x, y: pred.y } : null;
-  const me = snap.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
+  if (mode === 'online' && !practice) return pred ? { x: pred.x, y: pred.y } : null;
+  const me = snap.pl.find(p => p.id === (mode === 'local' ? 'p1' : practice ? practice.players[0].id : myPeer));
   return me && me.alive ? { x: me.x, y: me.y } : null;
 }
 function pathNext(start, goal, avoidPortals) {
@@ -138,7 +138,7 @@ function mouseSteer() {
 /* ---------- ghost bombs: dead players left-click the board ---------- */
 let ghostReadyAt = 0;
 function canGhost() {
-  if (mode !== 'online' || !snap || snap.ph !== 'play' || snap.pz) return false;
+  if (mode !== 'online' || practice || !snap || snap.ph !== 'play' || snap.pz) return false;
   const me = snap.pl.find(p => p.id === myPeer);
   return !!(me && !me.alive && !me.downed);
 }

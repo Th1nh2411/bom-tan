@@ -22,22 +22,18 @@
 
 
 <main class="layout">
-  <div class="login-gate" id="loginGate">
-    <div class="gate-icon">🔐</div>
-    <div class="gate-title">Đăng nhập</div>
-    <div class="gate-sub" id="gateSub">Đăng nhập bằng Google để tham gia chơi và lưu thành tích.</div>
-    <div id="gateGsiBtn"></div>
-    <form class="gate-guest" id="gateGuest" hidden>
-      <input type="text" id="gateName" maxlength="12" autocomplete="off" placeholder="Tên trong game" aria-label="Tên trong game">
-      <button class="b run" type="submit">Vào chơi</button>
-    </form>
-    <div class="gate-sub">hoặc</div>
-    <button class="b gate-local" id="gateLocalBtn">Chơi 2 người trên 1 máy</button>
-    <button class="b gate-local" id="gateExitBtn">Thoát chế độ 1 máy</button>
-  </div>
   <aside class="side" id="side">
     <div class="side-title">bảng điều khiển</div>
-    <details class="sec" open>
+    <div class="login-gate" id="loginGate">
+      <div class="gate-title">Đăng nhập để chơi online</div>
+      <div class="gate-sub" id="gateSub">Đăng nhập bằng Google để tham gia chơi và lưu thành tích.</div>
+      <div id="gateGsiBtn"></div>
+      <form class="gate-guest" id="gateGuest" hidden>
+        <input type="text" id="gateName" maxlength="12" autocomplete="off" placeholder="Tên trong game" aria-label="Tên trong game">
+        <button class="b run" type="submit">Vào chơi</button>
+      </form>
+    </div>
+    <details class="sec" id="meSec" open>
       <summary>bạn</summary>
       <div class="me-card">
         <span class="avatar" id="meAvatar" aria-hidden="true"></span>
@@ -48,7 +44,10 @@
       <input type="text" id="name" maxlength="12" autocomplete="off">
       <div class="swatches" id="swatches" role="group" aria-label="Màu nhân vật"></div>
       <div id="hatsWrap" hidden><label class="f">Mũ</label><div class="hats" id="hats" role="group" aria-label="Mũ"></div></div>
-      <label class="chk"><input type="checkbox" id="joinChk" checked> Tự sẵn sàng ván mới</label>
+    </details>
+    <details class="sec" id="roomSec" open>
+      <summary><span id="roomTitle">phòng</span> <span class="badge" id="roomBadge"></span></summary>
+      <div class="room" id="roomBody"></div>
     </details>
     <details class="sec" id="teamCard" open hidden>
       <summary>chọn đội</summary>
@@ -57,21 +56,17 @@
         <button id="team1" style="background:var(--blue)" aria-pressed="false">Đội Xanh</button>
       </div>
     </details>
-    <details class="sec" open>
-      <summary>phòng <span class="badge" id="roomBadge"></span></summary>
-      <div class="btns">
-        <button class="b" id="lobbyBtn" hidden><i>■</i>Dừng, về sảnh</button>
-        <button class="b" id="inviteBtn"><i>⧉</i><span>Sao chép link mời</span></button>
-        <button class="b" id="localBtn"><i>⇆</i><span>Chơi 2 người trên 1 máy</span></button>
-      </div>
+    <details class="sec" id="playersSec" open>
+      <summary>người chơi <span class="badge" id="pcount"></span></summary>
+      <ul class="lob-roster side-roster" id="plist"></ul>
+    </details>
+    <details class="sec" id="roomsSec" open>
+      <summary>phòng công khai <span class="badge" id="rcount"></span></summary>
+      <div id="roomsBody"></div>
     </details>
     <details class="sec" open>
       <summary>biểu cảm</summary>
       <div class="emotes" id="emotes"></div>
-    </details>
-    <details class="sec" open>
-      <summary>người chơi <span class="badge" id="pcount"></span></summary>
-      <ol class="list" id="plist"></ol>
     </details>
   </aside>
   <div class="scrim" id="scrim"></div>
@@ -85,7 +80,9 @@
       <div class="gutter" id="gutter" aria-hidden="true"></div>
       <div class="board-wrap" id="wrap">
         <canvas id="cv" aria-label="Bàn chơi"></canvas>
-        <div class="overlay" id="overlay">
+        <div class="board-hint" id="boardHint" hidden></div>
+        <div class="shop" id="shop" hidden></div>
+        <div class="overlay hide" id="overlay">
           <div class="big" id="ovBig">Bom Tấn</div><div class="small" id="ovSmall"></div><pre class="stats" id="ovStats"></pre>
         </div>
       </div>
@@ -169,10 +166,50 @@
               <li>Bị hạ gục thì nằm chờ 3 giây. Đồng đội chạy đến chạm vào là cứu sống lại.</li>
             </ul>
           </section>
+          <section class="help-card mode">
+            <h3><span class="tagm boss">Săn boss</span></h3>
+            <ul class="facts">
+              <li>Một người ngẫu nhiên làm boss: to hơn, nhiều mạng (♥), bom nổ xa. Bấm <kbd>E</kbd> để gọi 2 quái đánh giúp, 10 giây một lần.</li>
+              <li>Những người còn lại là thợ săn, hạ boss trong 2 phút thì thắng. Hết giờ hoặc thợ săn chết hết thì boss thắng.</li>
+            </ul>
+          </section>
+          <section class="help-card mode">
+            <h3><span class="tagm coop">Sinh tồn</span></h3>
+            <ul class="facts">
+              <li>Quái kéo đến theo đợt, mỗi đợt đông và khó hơn. Cứ 5 đợt có một boss.</li>
+              <li>Diệt quái được xu. Giữa các đợt có 8 giây mở cửa hàng: thêm bom, lửa, giày, găng, khiên.</li>
+              <li>Ai chết sẽ được hồi sinh khi xong đợt. Cả đội cùng chết là hết ván.</li>
+            </ul>
+          </section>
+          <section class="help-card mode">
+            <h3><span class="tagm coop">Đánh boss</span></h3>
+            <ul class="facts">
+              <li>Boss to 2×2 ô, có thanh máu. Mỗi lần trúng bom của người chơi mất 1 máu.</li>
+              <li>Ô đỏ nhấp nháy là chỗ boss sắp đánh: có khoảng 1 giây để chạy.</li>
+              <li>Vua Bom ném bom, Rồng Lửa phun lửa thẳng hàng, Người Đá dậm đất và gọi quái, Hồn Ma lúc ẩn lúc hiện (chỉ trúng được khi đang hiện). Còn nửa máu boss nổi giận: đánh nhanh hơn và tường bắt đầu sập.</li>
+            </ul>
+          </section>
+          <section class="help-card mode">
+            <h3><span class="tagm coop">Đi ải</span></h3>
+            <ul class="facts">
+              <li>10 ải nối tiếp, ải 5 và ải 10 là boss. Vật phẩm nhặt được giữ qua các ải.</li>
+              <li>Diệt hết quái thì cửa ra (giấu dưới một thùng) mở, ai đứng vào là cả đội qua ải. Qua nhanh được nhiều ★.</li>
+              <li>Ải đã qua được mở khóa trong phòng: lần sau chủ phòng chọn bắt đầu từ ải đó.</li>
+            </ul>
+          </section>
+          <section class="help-card wide">
+            <h3>Quái vật</h3>
+            <ul class="items">
+              <li><span class="ico">🟢</span><b>Nhầy</b><span>Đi lang thang. 1 xu</span></li>
+              <li><span class="ico">🦇</span><b>Dơi</b><span>Đuổi theo người gần nhất. 2 xu</span></li>
+              <li><span class="ico">👻</span><b>Ma</b><span>Bay xuyên thùng, đuổi theo bạn. 2 xu</span></li>
+              <li><span class="ico">😈</span><b>Quỷ con</b><span>Đuổi theo và biết né bom. 3 xu</span></li>
+              <li><span class="ico">🛡️</span><b>Giáp sắt</b><span>Chậm nhưng chịu được 3 lần nổ. 4 xu</span></li>
+            </ul>
+          </section>
         </div>
       </div>
     </div>
-    <div class="lobby" id="lobby" hidden><div class="lob-card"></div></div>
     <div class="pad" id="pad">
       <div class="dpad">
         <button class="u" data-d="0,-1" aria-label="Lên">▲</button>
@@ -181,6 +218,7 @@
         <button class="d" data-d="0,1" aria-label="Xuống">▼</button>
       </div>
       <button class="pausebtn" id="pauseBtn" aria-label="Tạm dừng hoặc chơi tiếp">⏸</button>
+      <button class="pausebtn skillbtn" id="skillBtn" aria-label="Kỹ năng boss" hidden>E</button>
       <button class="bombbtn" id="bombBtn" aria-label="Đặt bom">BOM</button>
     </div>
   </section>

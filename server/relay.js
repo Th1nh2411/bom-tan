@@ -34,7 +34,7 @@ function cleanPatch(p) {
   return p;
 }
 // Controls (movement, bombs, predicted position) are only read by the server's game, never relayed.
-const CONTROLS = new Set(['dx', 'dy', 'b', 'bc', 'px', 'py', 'pd', 'tp', 'pr']);
+const CONTROLS = new Set(['dx', 'dy', 'b', 'bc', 'px', 'py', 'pd', 'tp', 'pr', 'sk']);
 function shared(p) {
   const o = {};
   for (const k of Object.keys(p)) if (!CONTROLS.has(k)) o[k] = p[k];
@@ -100,15 +100,30 @@ async function readLb() {
   } else {
     rows = [...memLb.entries()].map(([by, v]) => ({ by, ...v }));
   }
-  rows = rows.map(r => ({ by: r.by, n: cleanName(r.n), w: +r.w || 0, g: +r.g || 0, k: +r.k || 0, s: +r.s || 0, r: +r.r || 0 }))
-    .filter(r => r.g > 0)
+  rows = rows.map(r => ({ by: r.by, n: cleanName(r.n), w: +r.w || 0, g: +r.g || 0, k: +r.k || 0, s: +r.s || 0, r: +r.r || 0, wv: +r.wv || 0, stg: +r.stg || 0, bk: +r.bk || 0 }))
+    .filter(r => r.g > 0 || r.wv > 0 || r.stg > 0 || r.bk > 0)
     .sort((a, b) => b.w - a.w || b.k - a.k || a.g - b.g)
-    .slice(0, 30);
+    .slice(0, 60);
   lbCache = rows; lbCacheAt = Date.now();
   return rows;
 }
+// co-op records: best wave and stage are maxima, boss kills add up
+async function recordPve(list) {
+  for (const r of list) {
+    const cur = redisReady ? await pub.hGetAll(LB_KEY(r.by)) : (memLb.get(r.by) || {});
+    const next = { n: r.n || cur.n || '', wv: Math.max(+cur.wv || 0, r.wv), stg: Math.max(+cur.stg || 0, r.stg), bk: (+cur.bk || 0) + r.bk };
+    if (redisReady) { await pub.sAdd(LB_ALL, r.by); await pub.hSet(LB_KEY(r.by), next); }
+    else memLb.set(r.by, { ...cur, ...next });
+  }
+}
 async function recordLb(rows) {
   if (!Array.isArray(rows)) return;
+  if (rows.some(r => r && r.pve)) {
+    const list = rows.slice(0, 8).map(r => ({ by: cleanId(r && r.by), n: cleanName(r && r.n), wv: Math.min(999, r.wv | 0), stg: Math.min(99, r.stg | 0), bk: r.bk ? 1 : 0 })).filter(r => r.by);
+    if (list.length) await recordPve(list);
+    lbCache = null;
+    return;
+  }
   const list = rows.slice(0, 8).map(r => ({
     by: cleanId(r && r.by), n: cleanName(r && r.n),
     w: smallInt(r.w), g: smallInt(r.g), k: smallInt(r.k), s: smallInt(r.s), r: smallInt(r.r), d: smallInt(r.d)

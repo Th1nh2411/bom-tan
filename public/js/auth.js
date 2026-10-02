@@ -41,7 +41,7 @@ function renderAuth() {
       // no GOOGLE_CLIENT_ID on the server: play as a guest under a typed name instead
       const guestForm = !googleClientId && configLoaded;
       $('gateGuest').hidden = !guestForm;
-      $('gateSub').textContent = guestForm ? 'Nhập tên để tham gia chơi.' : 'Đăng nhập bằng Google để tham gia chơi và lưu thành tích.';
+      $('gateSub').textContent = guestForm ? 'Nhập tên để vào phòng và chơi cùng mọi người.' : 'Đăng nhập bằng Google để vào phòng chơi và lưu thành tích.';
       if (guestForm && !$('gateName').value) $('gateName').value = myName;
     }
   }

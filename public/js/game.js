@@ -26,7 +26,7 @@ function setSnap(next) {
     }
     for (let i = 0; i < W * H; i++) if (POWERS.includes(prev.g[i]) && next.g[i] === '.' && !next.fl.has(i)) { sfx.pickup(); break; }
   }
-  if (prev.ph !== 'end' && next.ph === 'end') {
+  if (prev.ph !== 'end' && next.ph === 'end' && next.md !== 'p') {   // a death on the practice field is not a round
     onRoundEnd(next);
     const me = next.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
     const won = me && next.wi.includes(me.id);
@@ -39,7 +39,7 @@ function peerName(p) { return p.sameTab ? myName : (cleanName(p.presence.n) || '
 /* ---------- client-side prediction ---------- */
 let predGridStr = '', predGrid = [];
 function predictStep(dt) {
-  if (mode !== 'online' || !room || !snap || snap.ph !== 'play') { pred = null; return; }
+  if (mode !== 'online' || practice || !room || !snap || snap.ph !== 'play') { pred = null; return; }
   if (snap.pz) return;   // paused: hold the predicted position
   const me = snap.pl.find(p => p.id === myPeer);
   if (!me || !me.alive) { pred = null; return; }
@@ -75,8 +75,26 @@ function predictStep(dt) {
 
 /* ---------- local mode ---------- */
 function localSlots() { return [{ id: 'p1', name: 'P1 (WASD)', color: 0 }, { id: 'p2', name: 'P2 (Mũi tên)', color: 1 }]; }
-function startLocal() { mode = 'local'; scores = {}; pred = null; localGame = newGame(localSlots(), false); snap = null; updateUI(); }
-function stopLocal() { mode = 'online'; localGame = null; snap = null; if (netGame) setSnap(sanitizeSnap({ ...netGame.b, g: netGame.gg })); onRoomChange(); }
+function startLocal() { mode = 'local'; scores = {}; pred = null; practice = null; localGame = newGame(localSlots(), false); snap = null; updateUI(); }
+function stopLocal() {
+  mode = 'online'; localGame = null; snap = null;
+  if (net && net.ph !== 'lobby') { setDims(net.gw, net.gh); setSnap(net); } else startPractice();
+  onRoomChange();
+}
+
+/* ---------- practice field: outside rooms and between rounds you walk and bomb on your own board ---------- */
+let practiceDeadT = 0;
+function startPractice() {
+  practice = newGame([{ id: myPeer || 'me', name: myName, color: myColor, hat: myHat }], false, { mode: 'p' });
+  practice.ph = 'play'; practiceDeadT = 0; pred = null;
+}
+function stepPractice(dt) {
+  const me = practice.players[0];
+  me.name = myName; me.color = myColor; me.hat = myHat;
+  if (!coverLocal && !(net && net.pz)) stepGame(practice, { [me.id]: ctlDir(ctlA) }, dt, {});
+  if (!me.alive && (practiceDeadT += dt) > 1.2) startPractice();   // blew yourself up: a fresh field
+  setSnap(sanitizeSnap(snapshot(practice, {})));
+}
 
 /* ---------- pause (Esc): anyone can pause the whole room; the board is covered by a code tab ---------- */
 let coverLocal = false;
@@ -86,13 +104,14 @@ function holdInputs(g, inputs) { for (const p of g.players) { const inp = inputs
 function setPause(want) {
   if (!want) coverLocal = false;
   if (mode === 'local' && localGame) localGame.pz = want;
-  else if (mode === 'online' && room && connected && snap) { if (snap.pz !== want) room.cmd({ c: 'pause', on: want }); }
-  else if (want) coverLocal = true;   // not connected: cover this screen only
+  else if (mode === 'online' && ROOM_ID && room && connected && net) { if (net.pz !== want) room.cmd({ c: 'pause', on: want }); }
+  else if (want) coverLocal = true;   // no room: cover this screen only
   updateCover();
 }
 function updateCover() {
-  const on = coverLocal || !!(snap && snap.pz);
-  const by = !coverLocal && snap && snap.pz ? snap.pzb : '';
+  const st = mode === 'online' ? net : snap;
+  const on = coverLocal || !!(st && st.pz);
+  const by = !coverLocal && st && st.pz ? st.pzb : '';
   const pzEl = $('coverPz');
   if (pzEl.dataset.by !== by) {
     pzEl.dataset.by = by;

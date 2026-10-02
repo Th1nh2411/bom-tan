@@ -83,11 +83,13 @@ function applyRule(g) {
   if (g.rule === 'fast') g.fuse = FUSE / 1.5;
 }
 
-// opts.mode: 's' solo, 't' teams, 'z' zombie (teams stays for old callers); opts.rule: a DAILY_RULES key or ''
+// opts.mode: 's' solo, 't' teams, 'z' zombie, or a co-op / boss mode from pve.js ('v' waves, 'b' boss,
+// 'c' campaign, 'h' boss hunt); teams stays for old callers. opts.rule: a DAILY_RULES key or ''.
+// opts.boxes: share of free cells that get a box (default .72); opts.stage: campaign stage
 function newGame(slots, teams, opts = {}) {
   const gmode = opts.mode || (teams ? 't' : 's');
   teams = gmode === 't';
-  const sz = sizeFor(slots.length);
+  const sz = sizeFor(Math.max(slots.length, isPve(gmode) ? 3 : 0));   // co-op boards are never the smallest one
   setDims(sz[0], sz[1]);
   const grid = new Array(W * H).fill('.');
   const hidden = new Array(W * H).fill('');
@@ -102,7 +104,7 @@ function newGame(slots, teams, opts = {}) {
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = idx(x, y);
     if (grid[i] !== '.' || keepClear(x, y)) continue;
-    if (Math.random() < 0.72) {
+    if (Math.random() < (opts.boxes ?? 0.72)) {
       grid[i] = 'x';
       if (opts.rule === 'curse' && Math.random() < 0.12) hidden[i] = 'c';
       else if (Math.random() < 0.38) { const r = Math.random(); hidden[i] = r < 0.26 ? 'b' : r < 0.52 ? 'f' : r < 0.66 ? 's' : r < 0.78 ? 'k' : r < 0.90 ? 'h' : 'c'; }
@@ -124,8 +126,10 @@ function newGame(slots, teams, opts = {}) {
     players, winner: null, winnerIds: [], kills: [], revives: [], bid: 0, justEnded: false
   };
   applyRule(g);
+  if (isPve(gmode) && typeof setupPve === 'function') setupPve(g, opts);
   return g;
 }
+const isPve = m => m === 'v' || m === 'b' || m === 'c' || m === 'h';
 
 function blocked(g, x, y, p) {
   if (x < 0 || y < 0 || x >= W || y >= H) return true;
@@ -433,6 +437,7 @@ function stepGame(g, inputs, dt, scores) {
       }
       if (killer === null) continue;
       if (g.mode === 'z' && p.zb) { p.stun = ZOMBIE_STUN; p.inv = ZOMBIE_STUN + 1; continue; }
+      if (p.hp > 1) { p.hp--; p.inv = 1.2; continue; }   // the boss in boss hunt has several lives
       if (p.shield) { p.shield = false; p.inv = SHIELD_INV; continue; }
       if (g.mode === 'z') { infect(g, p, killer); continue; }
       p.alive = false;
@@ -450,6 +455,8 @@ function stepGame(g, inputs, dt, scores) {
     for (const p of g.players) if (p.down > 0 && !standing.has(p.team)) { p.down = 0; g.kills.push([p.downBy, p.id]); }
   }
 
+  if (g.pve) stepPve(g, inputs, dt);   // monsters and bosses (pve.js)
+
   for (const [i, f] of g.flames) { f.t -= dt; if (f.t <= 0) g.flames.delete(i); }
   for (const [i, t] of g.burn) {
     if (t - dt <= 0) { g.burn.delete(i); g.grid[i] = g.hidden[i] || '.'; g.hidden[i] = ''; }
@@ -457,7 +464,7 @@ function stepGame(g, inputs, dt, scores) {
   }
 
   g.t = (g.t || 0) + dt;
-  if (g.t >= SD_START && g.mode !== 'z') {
+  if ((g.t >= SD_START && (g.mode === 's' || g.mode === 't')) || g.sdOn) {
     g.sdAcc = (g.sdAcc || 0) + dt; g.sdk = g.sdk || 0;
     while (g.sdAcc >= SD_STEP && g.sdk < SD_ORDER.length) {
       const i = SD_ORDER[g.sdk++];
@@ -473,7 +480,10 @@ function stepGame(g, inputs, dt, scores) {
 
   const alive = g.players.filter(p => p.alive);
   let over = false, winners = [];
-  if (g.mode === 'z') {
+  if (g.pve) {
+    const r = pveResult(g);
+    if (r) { over = true; g.winner = r.w; winners = r.winners; }
+  } else if (g.mode === 'z') {
     const humans = g.players.filter(p => !p.zb);
     if (g.players.length >= 2 && !humans.length) { over = true; g.winner = 'zombies'; winners = g.players.filter(p => p.z0); }
     else if (g.t >= ZOMBIE_T || g.players.length < 2) { over = true; g.winner = 'humans'; winners = humans; }
@@ -503,9 +513,10 @@ function snapshot(g, scores) {
     g: g.grid.join(''),
     bm: g.bombs.map(b => [b.id, b.i, Math.round(b.t * 10), Math.round(b.fx * 100), Math.round(b.fy * 100), (b.vx || b.vy) ? 1 : 0]),
     fl: [...g.flames.keys()],
-    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0), p.zb ? (p.stun > 0 ? 2 : 1) : 0, p.hat || '']),
+    pl: g.players.map(p => [p.id, Math.round(p.x * 100), Math.round(p.y * 100), p.alive ? 1 : (p.down > 0 ? 2 : 0), p.color, p.name, p.dir, scores[p.id] || 0, p.team, p.spd, p.kick ? 1 : 0, Math.round(p.down * 10), p.inv > 0 ? 1 : 0, p.shield ? 1 : 0, p.ck || 0, Math.ceil(p.ct || 0), p.zb ? (p.stun > 0 ? 2 : 1) : 0, p.hat || '',
+      p.coins || 0, p.hp || 0, p.boss ? 1 : 0, p.maxB, p.fire]),
     w: g.winner || '', pz: g.pz ? 1 : 0,
-    sd: g.ph === 'play' && g.mode !== 'z' ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
+    sd: g.ph === 'play' && (g.mode === 's' || g.mode === 't') ? Math.max(0, Math.ceil(SD_START - (g.t || 0))) : -1,
     zt: g.ph === 'play' && g.mode === 'z' ? Math.max(0, Math.ceil(ZOMBIE_T - (g.t || 0))) : -1,
     wi: g.ph === 'end' ? g.winnerIds : undefined,
     rw: (g.drops || []).map(d => d.i),
@@ -514,8 +525,9 @@ function snapshot(g, scores) {
       const death = g.kills.find(([, v]) => v === p.id);
       const by = !death ? (p.alive ? '' : '-') : death[0] === null ? '#' : death[0] === p.id ? '=' : String(death[0]);
       return [p.id, g.kills.filter(([a, v]) => a === p.id && v !== p.id).length, p.picks || 0, g.revives.filter(([a]) => a === p.id).length, by,
-        p.z0 ? 2 : p.zb ? 1 : 0, p.ghostKills || 0];
-    })
+        p.z0 ? 2 : p.zb ? 1 : 0, p.ghostKills || 0, p.mk || 0, p.dmg || 0];
+    }),
+    ...(g.pve ? pveSnapshot(g) : {})
   };
 }
 /* ================= END ENGINE ================= */

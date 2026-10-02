@@ -149,6 +149,28 @@ test('the owner can list the room publicly', async () => {
   [a, b].forEach(c => c.ws.close());
 });
 
+test('co-op rounds run on the server: monsters come, the owner picks only unlocked stages', async () => {
+  const a = client('coop', me), b = client('coop', { li: 1 });
+  await Promise.all([a.ready, b.ready]);
+  await until(a, g => g.ow === a.peer);
+  a.send({ t: 'cmd', c: 'stage', n: 3 });   // not reached yet: ignored
+  a.send({ t: 'cmd', c: 'mode', m: 'q' });   // not a mode: ignored
+  a.send({ t: 'cmd', c: 'mode', m: 'c' });
+  let g = await until(a, g => g.md === 'c');
+  assert.equal(g.cs, 1);
+  assert.equal(g.cu, 1);
+  a.send({ t: 'cmd', c: 'mode', m: 'v' });
+  a.send({ t: 'cmd', c: 'start' });
+  g = await until(a, g => g.ph === 'play' && (g.mb.length > 0 || g.sw.length > 0), 8000);
+  assert.equal(g.md, 'v');
+  assert.equal(g.pl.length, 1, 'only the ready owner plays');
+  a.send({ t: 'cmd', c: 'buy', item: 'b' });   // no break yet: nothing happens, nothing breaks
+  b.send({ t: 'cmd', c: 'lobby' });            // not the owner
+  await sleep(100);
+  assert.equal(game(a).ph, 'play');
+  [a, b].forEach(c => c.ws.close());
+});
+
 test('rooms are capped', async () => {
   const cs = Array.from({ length: LIMITS.ROOM_SIZE }, () => client('full'));
   await Promise.all(cs.map(c => c.ready));
