@@ -59,13 +59,14 @@ server/game.js      Chạy engine.js + pve.js trên server cho từng phòng
 server/auth.js      Kiểm tra token Google, cấp phiên đăng nhập
 test/               Test cho engine và relay (node --test)
 render.yaml         Cấu hình deploy lên Render
+deploy/oracle/      Script cài đặt lên VM Oracle Cloud Free
 ```
 
 Các file trong `public/js/` là script thường, nạp theo thứ tự trong `index.html` và dùng chung phạm vi toàn cục. Không cần bước build.
 
 ## Cách hoạt động
 
-- **Server chạy luật chơi.** Mỗi phòng có một ván chạy trên server (`server/game.js` dùng chung `public/js/engine.js` với trình duyệt), khoảng 60 lần/giây. Mỗi thao tác chỉ mất 1 vòng client ↔ server, và không phụ thuộc mạng của ai khác trong phòng.
+- **Server chạy luật chơi.** Mỗi phòng có một ván chạy trên server (`server/game.js` dùng chung `public/js/engine.js` với trình duyệt), khoảng 30 lần/giây. Mỗi thao tác chỉ mất 1 vòng client ↔ server, và không phụ thuộc mạng của ai khác trong phòng.
 - **Trình duyệt dự đoán vị trí.** Bạn thấy mình di chuyển ngay khi bấm phím; server kiểm tra vị trí gửi lên (không cho chạy nhanh hơn tốc độ, xuyên tường) và kéo về nếu lệch.
 - **Chưa vào phòng thì ở sân tập.** Mở trang không có `#mã-phòng` là vào sân tập: tự đi lại, đặt bom để làm quen phím; sidebar có Chơi nhanh, Tạo phòng, nhập mã phòng và danh sách phòng công khai. Trong sảnh chờ cũng là sân tập riêng của mỗi người cho tới khi ván bắt đầu.
 - **Sẵn sàng là vào chơi.** Trong sảnh chờ ai cũng bấm "Sẵn sàng"; khi tất cả (từ 2 người) đã sẵn sàng thì ván tự bắt đầu sau 3 giây. Ai tick "Tự sẵn sàng ván mới" thì hết ván được đánh dấu sẵn sàng luôn, nên cả phòng cùng tick là chơi liên tục.
@@ -76,7 +77,7 @@ Các file trong `public/js/` là script thường, nạp theo thứ tự trong `
   - Mỗi phòng tối đa 16 kết nối.
   - Mỗi kết nối gửi tối đa 240 tin/giây.
   - Server tự ghi kết quả ván vào bảng xếp hạng, người chơi không gửi điểm lên được.
-- **Tiết kiệm băng thông:** server nén dữ liệu, chỉ gửi phần thay đổi, và thao tác điều khiển không bị chuyển cho người khác.
+- **Tiết kiệm băng thông:** server chỉ gửi phần thay đổi, chỉ nén gói lớn (gói nhỏ nén thì tốn CPU mà không được bao nhiêu), và thao tác điều khiển không bị chuyển cho người khác.
 - **Chạy một instance.** Phòng nằm trong bộ nhớ của server, nên đừng bật nhiều instance (autoscale). 50 phòng × 8 người tốn khoảng 1 ms CPU mỗi tick.
 
 ## Chạy trên máy
@@ -103,6 +104,11 @@ Mở `http://localhost:3000`. Hai tab cùng đường link (cùng phần `#mã-p
 Giới hạn của gói miễn phí:
 - Server ngủ sau 15 phút không có ai. Lần mở tiếp theo phải chờ khoảng 1 phút.
 - Băng thông mỗi tháng có hạn mức. Xem trang giá của Render.
+- Ping từ Việt Nam khoảng 100ms trở lên: traffic đi qua Cloudflare Hong Kong rồi mới tới Singapore.
+
+## Deploy lên Oracle Cloud Free (ping thấp hơn)
+
+VM Singapore miễn phí có IP đi thẳng, ping từ Việt Nam thường 30–50ms. Một lệnh cài Node, Redis, HTTPS và chạy game: xem [deploy/oracle/README.md](deploy/oracle/README.md).
 
 ## Đăng nhập Google (tuỳ chọn)
 
@@ -136,7 +142,7 @@ npm test
 
 - **Phòng chơi nằm trong đường link.** Phần sau dấu `#` là mã phòng. Mở trang không có mã là vào sân tập, chưa vào phòng nào.
 - **Bảng xếp hạng có thêm kỷ lục hợp tác:** đợt xa nhất (Sinh tồn), ải xa nhất (Đi ải) và số boss đã hạ.
-- **Ping phụ thuộc vị trí server.** Server Render ở Singapore: từ Việt Nam khoảng 30–50 ms. Gói miễn phí dùng CPU chia sẻ và ngủ khi không có ai; gói trả phí ổn định hơn.
+- **Ping phụ thuộc đường đi tới server.** Render (Singapore, qua proxy Cloudflare Hong Kong): từ Việt Nam khoảng 100 ms. VM Oracle Singapore có IP đi thẳng: khoảng 30–50 ms. Gói miễn phí của Render dùng CPU chia sẻ và ngủ khi không có ai.
 - **Bảng xếp hạng dùng chung cho mọi phòng**, và nhận diện người chơi theo trình duyệt, không cần đăng nhập. Đổi trình duyệt thì được tính là người mới.
 - **Sau khi cập nhật code, mọi người phải tải lại trang.** Trình duyệt và server cần cùng phiên bản.
 - **Phím tắt:**
