@@ -154,7 +154,7 @@ test('boss hunt: the boss player has several lives, summons slimes, and loses wh
 const near = (e, g, p) => {
   let d = 1e9;
   for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - p.x) + Math.abs(m.y - p.y));
-  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - p.x) - .5) + Math.max(0, Math.abs(g.boss.y - p.y) - .5));
+  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - p.x) - 1) + Math.max(0, Math.abs(g.boss.y - p.y) - 1));
   return d;
 };
 
@@ -228,4 +228,24 @@ test('every map keeps the board in one piece, the portals open and room to spawn
   // campaign stages use their own maps
   const c = e.newGame(slots(2), false, { mode: 'c', stage: 4 });
   assert.equal(c.map, 'rooms');
+});
+
+test('the boss walks around walls and breaks the boxes it walks into', () => {
+  const e = loadEngine();
+  for (let k = 0; k < 20; k++) {
+    const g = e.newGame(slots(2), false, { mode: 'b', map: ['classic', 'rooms', 'fort'][k % 3] });
+    g.ph = 'play';
+    const b = g.boss;
+    b.cd = 1e9;
+    for (const p of g.players) p.inv = 1e9;
+    assert.notEqual(g.grid[e.idx(b.x, b.y)], '#', 'starts on an open cell');
+    for (let t = 0; t < 8; t += 1 / 60) {
+      e.stepGame(g, {}, 1 / 60, {});
+      if (!g.boss) break;
+      const c = e.idx(Math.round(b.x), Math.round(b.y)), d = e.idx(b.tx, b.ty);
+      assert.notEqual(g.grid[c], '#', `inside a wall at ${b.x},${b.y}`);
+      assert.notEqual(g.grid[d], '#');
+      assert.notEqual(g.grid[d], 'x', 'a box it walks into breaks first');
+    }
+  }
 });

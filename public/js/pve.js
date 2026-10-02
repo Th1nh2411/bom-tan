@@ -86,7 +86,7 @@ function threatDist(g, x, y) {
   let d = 1e9;
   for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - x) + Math.abs(m.y - y));
   for (const s of g.spawns) d = Math.min(d, Math.abs(s.i % W - x) + Math.abs(((s.i / W) | 0) - y));
-  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - x) - 0.5) + Math.max(0, Math.abs(g.boss.y - y) - 0.5));
+  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - x) - 1) + Math.max(0, Math.abs(g.boss.y - y) - 1));
   return d;
 }
 // where a player comes back: a free cell out of every blast line, well away from monsters and the boss
@@ -124,8 +124,9 @@ function mobPass(g, i, m) {
   if (c === 'x' && !MOB_KINDS[m.k].phase) return false;
   return !g.bombs.some(b => b.i === i);
 }
-// first step from start toward the nearest cell where goal(cell) holds (-1: unreachable)
-function bfsStep(g, m, start, goal, avoid) {
+// first step from start toward the nearest cell where goal(cell) holds (-1: unreachable);
+// pass(cell): whether the walker can step there (a monster: mobPass; the boss: anything but a wall)
+function bfsStep(g, m, start, goal, avoid, pass = n => mobPass(g, n, m)) {
   const prev = new Int16Array(W * H).fill(-1);
   prev[start] = start;
   const q = [start];
@@ -134,7 +135,7 @@ function bfsStep(g, m, start, goal, avoid) {
     if (c !== start && goal(c)) { let s = c; while (prev[s] !== start) s = prev[s]; return s; }
     for (const [dx, dy] of DIRS) {
       const n = c + dx + dy * W;
-      if (prev[n] !== -1 || !mobPass(g, n, m) || (avoid && avoid.has(n))) continue;
+      if (prev[n] !== -1 || !pass(n) || (avoid && avoid.has(n))) continue;
       prev[n] = c; q.push(n);
     }
   }
@@ -223,10 +224,12 @@ function hurt(g, p, by) {
   p.alive = false; p.down = DOWN_T; p.downBy = by;
 }
 
-/* ---------- bosses: 2x2, centred on (x, y) half-way between cells ---------- */
+/* ---------- bosses: drawn big, but they walk the board cell by cell like everyone else ----------
+   (x, y) is the cell the boss stands on (moving towards (tx, ty)). Walls stop it; a box it walks into
+   breaks. Its body covers the 3x3 cells around it: fire there hurts it, players there get hurt. */
 function spawnBoss(g, kind, hp, cell) {
-  const [x, y] = cell >= 0 ? [clampB(cell % W - 0.5, W), clampB(((cell / W) | 0) - 0.5, H)] : bossSpot(g);
-  g.boss = { k: kind, x, y, hp, max: hp, ph: 1, cd: 2.5, act: null, rest: 0, hitT: 0, vis: true, visT: 4 };
+  const [x, y] = cell >= 0 && g.grid[cell] !== '#' ? [cell % W, (cell / W) | 0] : bossSpot(g);
+  g.boss = { k: kind, x, y, tx: x, ty: y, hp, max: hp, ph: 1, cd: 2.5, act: null, rest: 0, hitT: 0, vis: true, visT: 4 };
   g.bossDead = false;
   g.banner = [BOSS_NAMES[kind] + ' xuất hiện!', 2.5];
   // nobody starts under the boss
@@ -237,11 +240,11 @@ function spawnBoss(g, kind, hp, cell) {
 function bossSpot(g) {
   const spots = [];
   let best = -1;
-  for (let y = 2; y <= H - 2; y++) for (let x = 2; x <= W - 2; x++) {
-    const cx = x - 0.5, cy = y - 0.5;   // covers cells x-1..x, y-1..y
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (g.grid[idx(x, y)] === '#') continue;
     let d = 1e9;
-    for (const p of g.players) if (p.alive) d = Math.min(d, Math.max(0, Math.abs(p.x - cx) - 0.5) + Math.max(0, Math.abs(p.y - cy) - 0.5));
-    spots.push([cx, cy, d]);
+    for (const p of g.players) if (p.alive) d = Math.min(d, Math.max(0, Math.abs(p.x - x) - 1) + Math.max(0, Math.abs(p.y - y) - 1));
+    spots.push([x, y, d]);
     best = Math.max(best, d);
   }
   const ok = spots.filter(s => s[2] >= Math.min(5, best));
@@ -250,7 +253,37 @@ function bossSpot(g) {
   const [x, y] = pick(ok.filter(s => mid(s) <= closest + 1));
   return [x, y];
 }
-const clampB = (v, n) => Math.min(n - 2.5, Math.max(1.5, v));
+// the open cell nearest to (x, y): where a teleporting boss lands
+function openNear(g, x, y) {
+  let best = null, bd = 1e9;
+  for (let cy = 1; cy < H - 1; cy++) for (let cx = 1; cx < W - 1; cx++) {
+    if (g.grid[idx(cx, cy)] === '#') continue;
+    const d = Math.hypot(cx - x, cy - y);
+    if (d < bd) { bd = d; best = [cx, cy]; }
+  }
+  return best;
+}
+// boss walking: towards the nearest player around the walls, breaking any box in the way
+function moveBoss(g, b, p, dt) {
+  let step = (b.k === 'golem' ? 1.4 : 1.8) * (b.ph === 2 ? 1.3 : 1) * dt, guard = 0;
+  while (step > 1e-6 && guard++ < 4) {
+    const dx = b.tx - b.x, dy = b.ty - b.y, d = Math.abs(dx) + Math.abs(dy);
+    if (d > 1e-6) {
+      const s = Math.min(step, d);
+      if (dx) b.x += Math.sign(dx) * s; else b.y += Math.sign(dy) * s;
+      if (Math.abs(b.tx - b.x) < 1e-6) b.x = b.tx;
+      if (Math.abs(b.ty - b.y) < 1e-6) b.y = b.ty;
+      step -= s;
+      continue;
+    }
+    if (Math.abs(p.x - b.x) + Math.abs(p.y - b.y) <= 1.2) return;   // right on top of them already
+    const here = idx(b.x, b.y), goal = idx(Math.round(p.x), Math.round(p.y));
+    const next = bfsStep(g, null, here, c => c === goal, null, n => g.grid[n] !== '#');
+    if (next < 0) return;
+    if (g.grid[next] === 'x') { g.grid[next] = 'X'; g.burn.set(next, FLAME_T); }   // the box breaks (what it hid drops out)
+    b.tx = next % W; b.ty = (next / W) | 0;
+  }
+}
 function nearestPlayer(g, x, y, team = 1) {
   let best = null, bd = 1e9;
   for (const p of g.players) if (p.alive && p.team !== team) { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = p; } }
@@ -348,7 +381,7 @@ function bossMove(g, b, move, targets) {
       const out = [];
       for (let R = 2; R <= (enraged ? 5 : 4); R++) {
         const cells = [];
-        for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (Math.max(Math.abs(dx - 0.5), Math.abs(dy - 0.5)) === R - 0.5 && open(bx + dx, by + dy)) cells.push(idx(bx + dx, by + dy));
+        for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === R && open(bx + dx, by + dy)) cells.push(idx(bx + dx, by + dy));
         out.push({ k: 'fire', t: 0.7 + (R - 2) * 0.35, cells });
       }
       return out;
@@ -361,17 +394,17 @@ function bossMove(g, b, move, targets) {
     }
     case 'cross': {
       const cells = new Set(), len = enraged ? 7 : 5;
-      for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) for (const [dx, dy] of DIRS)
-        for (let r = 0; r <= len; r++) { const x = bx - 1 + ox + dx * r, y = by - 1 + oy + dy * r; if (!open(x, y)) break; cells.add(idx(x, y)); }
+      // out of the cell it stands on, and when enraged out of the cells beside it too
+      const starts = enraged ? [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] : [[0, 0]];
+      for (const [ox, oy] of starts) for (const [dx, dy] of DIRS)
+        for (let r = 0; r <= len; r++) { const x = bx + ox + dx * r, y = by + oy + dy * r; if (!open(x, y)) break; cells.add(idx(x, y)); }
       return [{ k: 'fire', t: 0.8, cells: [...cells] }];
     }
     case 'blink': {
       // vanish, land two steps from you, burst around the landing spot
       const dx = Math.random() < 0.5 ? -2.5 : 2.5, dy = Math.random() < 0.5 ? -1.5 : 1.5;
-      const tx = clampB(p.x + dx, W), ty = clampB(p.y + dy, H);
-      const cells = [];
-      for (let y = Math.round(ty - 0.5) - 1; y <= Math.round(ty + 0.5) + 1; y++) for (let x = Math.round(tx - 0.5) - 1; x <= Math.round(tx + 0.5) + 1; x++) if (open(x, y)) cells.push(idx(x, y));
-      return [{ k: 'blink', t: 0.6, cells: [], to: [tx, ty] }, { k: 'fire', t: 1.4, cells }];
+      const [tx, ty] = openNear(g, Math.round(p.x + dx), Math.round(p.y + dy));
+      return [{ k: 'blink', t: 0.6, cells: [], to: [tx, ty] }, { k: 'fire', t: 1.4, cells: square(tx, ty, 1) }];
     }
     case 'haunt': {
       const cells = [];
@@ -398,7 +431,7 @@ function doWave(g, b, w) {
       if (g.grid[i] !== '.' || g.bombs.some(o => o.i === i) || g.players.some(q => q.alive && Math.abs(q.x - x) < .8 && Math.abs(q.y - y) < .8) || g.mobs.some(m => cellOf(m) === i)) continue;
       g.grid[i] = 'x'; g.hidden[i] = Math.random() < 0.2 ? rollItem() : '';
     }
-  } else if (w.k === 'blink') { b.x = w.to[0]; b.y = w.to[1]; b.vis = true; b.visT = 4; }
+  } else if (w.k === 'blink') { b.x = b.tx = w.to[0]; b.y = b.ty = w.to[1]; b.vis = true; b.visT = 4; }
   else if (w.k === 'summon') { for (const i of w.cells) if (g.grid[i] === '.') addMob(g, 'ghost', i); }
 }
 function stepBoss(g, dt) {
@@ -407,10 +440,10 @@ function stepBoss(g, dt) {
   if (b.k === 'wraith' && !b.act && (b.visT -= dt) <= 0) {
     // the wraith fades out, then shows up somewhere else
     b.vis = !b.vis; b.visT = b.vis ? 4 : 2.5;
-    if (b.vis) { const i = freeCell(g, 5); if (i >= 0) { b.x = clampB(i % W - 0.5, W); b.y = clampB(((i / W) | 0) - 0.5, H); } }
+    if (b.vis) { const i = freeCell(g, 5); if (i >= 0) { b.x = b.tx = i % W; b.y = b.ty = (i / W) | 0; } }
   }
   if (b.vis && b.hitT <= 0) for (const [i, f] of g.flames) {
-    if (Math.abs(i % W - b.x) >= 1 || Math.abs(((i / W) | 0) - b.y) >= 1) continue;
+    if (Math.abs(i % W - b.x) > 1.2 || Math.abs(((i / W) | 0) - b.y) > 1.2) continue;   // the 3x3 around it
     const p = flameOwner(g, f);
     if (!p) continue;   // its own fire does not hurt it
     b.hp--; b.hitT = BOSS_HIT_CD; p.dmg = (p.dmg || 0) + 1;
@@ -430,10 +463,7 @@ function stepBoss(g, dt) {
   }
   if (b.rest > 0) { b.rest -= dt; return; }
   const p = nearestPlayer(g, b.x, b.y);
-  if (p && b.vis) {
-    const sp = (b.k === 'golem' ? 0.9 : 1.3) * (b.ph === 2 ? 1.35 : 1) * dt, dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy);
-    if (d > 0.6) { b.x = clampB(b.x + dx / d * sp, W); b.y = clampB(b.y + dy / d * sp, H); }
-  }
+  if (p && b.vis) moveBoss(g, b, p, dt);
   if ((b.cd -= dt) <= 0) { b.cd = BOSS_CD[b.k] * (b.ph === 2 ? 0.65 : 1); startAttack(g, b); }
 }
 function bossDown(g) {
