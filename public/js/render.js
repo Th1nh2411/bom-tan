@@ -434,7 +434,8 @@ function drawMob(m, cx, cy, now) {
   ctx.restore();
 }
 function drawBoss(b, now) {
-  const cx = (b.x + .5) * T, cy = (b.y + .5) * T, R = T * .92 * (1 + Math.sin(now / (b.ph === 2 ? 90 : 220)) * .03);
+  // fills its one cell (the hitbox), a bit bigger than a monster
+  const cx = (b.x + .5) * T, cy = (b.y + .5) * T, R = T * .46 * (1 + Math.sin(now / (b.ph === 2 ? 90 : 220)) * .03);
   ctx.save();
   ctx.globalAlpha = b.vis ? 1 : .18;   // the wraith fades out between appearances
   ctx.fillStyle = '#00000066'; ctx.beginPath(); ctx.ellipse(cx, cy + R * .95, R * .8, R * .18, 0, 0, 7); ctx.fill();

@@ -8,7 +8,7 @@ const MODE_INFO = {
   z: ['Zombie', 'Một người là zombie, chạm là lây. Sống sót 90 giây để thắng.'],
   h: ['Săn boss', 'Một người ngẫu nhiên làm boss nhiều mạng, bấm E gọi quái. Cả nhóm săn nó trong 2 phút.'],
   v: ['Sinh tồn', 'Quái kéo đến theo đợt, cứ 5 đợt có boss. Giữa các đợt mua đồ bằng xu.'],
-  b: ['Đánh boss', 'Cùng hạ một boss 2×2. Còn nửa máu nó nổi giận và tường bắt đầu sập.'],
+  b: ['Đánh boss', 'Cùng hạ một boss. Còn nửa máu nó nổi giận và tường bắt đầu sập.'],
   c: ['Đi ải', '10 ải, ải 5 và 10 có boss. Diệt hết quái rồi tìm cửa ra giấu dưới thùng.'],
   p: ['Sân tập', ''],
 };

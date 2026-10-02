@@ -81,12 +81,12 @@ function freeCell(g, minD) {
   if (cand.length) return pick(cand);
   return minD > SAFE_D ? freeCell(g, Math.max(SAFE_D, minD - 2)) : -1;
 }
-// steps from (x, y) to the nearest monster, monster about to appear, or the boss's 2x2 body
+// steps from (x, y) to the nearest monster, monster about to appear, or the boss
 function threatDist(g, x, y) {
   let d = 1e9;
   for (const m of g.mobs) d = Math.min(d, Math.abs(m.x - x) + Math.abs(m.y - y));
   for (const s of g.spawns) d = Math.min(d, Math.abs(s.i % W - x) + Math.abs(((s.i / W) | 0) - y));
-  if (g.boss) d = Math.min(d, Math.max(0, Math.abs(g.boss.x - x) - 1) + Math.max(0, Math.abs(g.boss.y - y) - 1));
+  if (g.boss) d = Math.min(d, Math.abs(g.boss.x - x) + Math.abs(g.boss.y - y));
   return d;
 }
 // where a player comes back: a free cell out of every blast line, well away from monsters and the boss
@@ -224,9 +224,9 @@ function hurt(g, p, by) {
   p.alive = false; p.down = DOWN_T; p.downBy = by;
 }
 
-/* ---------- bosses: drawn big, but they walk the board cell by cell like everyone else ----------
+/* ---------- bosses: they walk the board cell by cell like everyone else ----------
    (x, y) is the cell the boss stands on (moving towards (tx, ty)). Walls stop it; a box it walks into
-   breaks. Its body covers the 3x3 cells around it: fire there hurts it, players there get hurt. */
+   breaks. Its body is that one cell: fire there hurts it, a player touching it gets hurt. */
 function spawnBoss(g, kind, hp, cell) {
   const [x, y] = cell >= 0 && g.grid[cell] !== '#' ? [cell % W, (cell / W) | 0] : bossSpot(g);
   g.boss = { k: kind, x, y, tx: x, ty: y, hp, max: hp, ph: 1, cd: 2.5, act: null, rest: 0, hitT: 0, vis: true, visT: 4 };
@@ -276,7 +276,7 @@ function moveBoss(g, b, p, dt) {
       step -= s;
       continue;
     }
-    if (Math.abs(p.x - b.x) + Math.abs(p.y - b.y) <= 1.2) return;   // right on top of them already
+    if (Math.abs(p.x - b.x) + Math.abs(p.y - b.y) < 0.5) return;   // right on top of them already
     const here = idx(b.x, b.y), goal = idx(Math.round(p.x), Math.round(p.y));
     const next = bfsStep(g, null, here, c => c === goal, null, n => g.grid[n] !== '#');
     if (next < 0) return;
@@ -442,19 +442,17 @@ function stepBoss(g, dt) {
     b.vis = !b.vis; b.visT = b.vis ? 4 : 2.5;
     if (b.vis) { const i = freeCell(g, 5); if (i >= 0) { b.x = b.tx = i % W; b.y = b.ty = (i / W) | 0; } }
   }
-  if (b.vis && b.hitT <= 0) for (const [i, f] of g.flames) {
-    if (Math.abs(i % W - b.x) > 1.2 || Math.abs(((i / W) | 0) - b.y) > 1.2) continue;   // the 3x3 around it
-    const p = flameOwner(g, f);
-    if (!p) continue;   // its own fire does not hurt it
-    b.hp--; b.hitT = BOSS_HIT_CD; p.dmg = (p.dmg || 0) + 1;
+  const fire = b.vis && b.hitT <= 0 && g.flames.get(idx(Math.round(b.x), Math.round(b.y)));   // fire on its one cell
+  const hitter = fire && flameOwner(g, fire);   // its own fire does not hurt it
+  if (hitter) {
+    b.hp--; b.hitT = BOSS_HIT_CD; hitter.dmg = (hitter.dmg || 0) + 1;
     if (b.hp <= 0) return bossDown(g);
     if (b.ph === 1 && b.hp <= b.max / 2) {
       b.ph = 2; g.banner = [BOSS_NAMES[b.k] + ' nổi giận!', 2];
       if (g.mode === 'b') g.sdOn = true;   // the walls start closing in
     }
-    break;
   }
-  if (b.vis) for (const p of g.players) if (p.team === 0 && Math.abs(p.x - b.x) < 1.25 && Math.abs(p.y - b.y) < 1.25) hurt(g, p, '@');
+  if (b.vis) for (const q of g.players) if (q.team === 0 && Math.hypot(q.x - b.x, q.y - b.y) < 0.8) hurt(g, q, '@');
   if (b.act) {
     for (const w of b.act.waves) if ((w.t -= dt) <= 0) { doWave(g, b, w); w.done = true; }
     b.act.waves = b.act.waves.filter(w => !w.done);

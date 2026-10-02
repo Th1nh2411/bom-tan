@@ -10,7 +10,7 @@ Game đặt bom nhiều người chơi trên trình duyệt, tối đa 8 ngườ
 
 **Chế độ hợp tác (đánh quái):**
 - Sinh tồn: quái kéo đến theo đợt, cứ 5 đợt có boss; giữa các đợt mua đồ bằng xu.
-- Đánh boss: 4 boss 2×2 (Vua Bom, Rồng Lửa, Người Đá, Hồn Ma), mỗi con một kiểu đánh, có báo trước; còn nửa máu thì nổi giận.
+- Đánh boss: 4 boss (Vua Bom, Rồng Lửa, Người Đá, Hồn Ma), mỗi con một kiểu đánh, có báo trước; còn nửa máu thì nổi giận.
 - Đi ải: 10 ải, ải 5 và 10 là boss; diệt hết quái rồi tìm cửa ra giấu dưới thùng.
 - 5 loại quái: nhầy, dơi, ma (xuyên thùng), quỷ con (né bom), giáp sắt (3 máu).
 

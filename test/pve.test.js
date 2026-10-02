@@ -129,6 +129,23 @@ test('boss: takes hits from player bombs only, gets angry at half health, and th
   assert.ok(p.dmg >= 3);
 });
 
+test('boss hitbox is its one cell: fire or a player next to it does nothing', () => {
+  const e = loadEngine();
+  const g = coop(e, 'b', 1);
+  const b = g.boss, p = g.players[0];
+  b.x = b.tx = 5; b.y = b.ty = 5; b.cd = b.rest = 99; b.act = null; b.vis = true; b.hitT = 0;
+  const hp = b.hp;
+  at(p, 5, 7);
+  g.flames.set(e.idx(6, 5), { t: 0.5, o: new Set([p.id]) });
+  g.flames.set(e.idx(5, 6), { t: 0.5, o: new Set([p.id]) });
+  step(e, g, 0.02);
+  assert.equal(b.hp, hp, 'fire on the next cells misses');
+  assert.ok(p.alive, 'standing one cell away is safe');
+  g.flames.set(e.idx(5, 5), { t: 0.5, o: new Set([p.id]) });
+  step(e, g, 0.02);
+  assert.equal(b.hp, hp - 1, 'fire on its cell hits');
+});
+
 test('boss attacks: every move of every boss warns first, then lands', () => {
   const e = loadEngine();
   for (const kind of ['king', 'dragon', 'golem', 'wraith']) for (const move of e.BOSS_MOVES[kind]) for (const ph of [1, 2]) {
