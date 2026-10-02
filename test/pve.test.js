@@ -44,6 +44,49 @@ test('a bomb kills a monster and pays its owner; a monster touch knocks a player
   assert.ok(!g.players[1].alive && g.players[1].down > 0, 'knocked down, waiting for a rescue');
 });
 
+test('co-op: a downed player waits for a rescue with no time limit; the round is lost once nobody stands', () => {
+  const e = loadEngine();
+  const g = coop(e, 'v', 3);
+  g.brk = 99;                       // hold the waves back
+  const [a, b, c] = g.players;
+  at(a, 1, 1); at(b, 9, 9); at(c, 9, 1);
+  b.maxB = 3;
+  b.alive = false; b.down = e.DOWN_T; b.downBy = null;
+  step(e, g, e.DOWN_T * 4);
+  assert.ok(!b.alive && b.down > 0, 'still waiting long after the old 3s countdown');
+  at(a, 9, 9);
+  step(e, g, 0.05);
+  assert.ok(b.alive && b.down === 0, 'rescued by a teammate');
+  assert.equal(b.maxB, 3, 'keeps power-ups');
+  // everyone down: nobody can come, so the round ends
+  for (const p of g.players) { p.alive = false; p.down = e.DOWN_T; }
+  step(e, g, 0.05);
+  assert.equal(g.ph, 'end');
+  assert.equal(g.winner, 'lose');
+});
+
+test('downed players stand up between waves and on a new stage, keeping power-ups; team battles keep the countdown', () => {
+  const e = loadEngine();
+  const g = coop(e, 'v', 2);
+  const p = g.players[1];
+  p.fire = 4; p.alive = false; p.down = e.DOWN_T;
+  e.respawnDead(g);
+  assert.ok(p.alive && p.down === 0 && p.fire === 4);
+  const c = coop(e, 'c', 2);
+  const q = c.players[1];
+  q.fire = 4; q.alive = false; q.down = e.DOWN_T;
+  e.nextStage(c);
+  assert.ok(q.alive && q.fire === 4);
+  // team battle: still 3 seconds to be rescued
+  const t = e.newGame(slots(4).map((s, k) => ({ ...s, team: k % 2 })), true, { mode: 't' });
+  t.ph = 'play';
+  const [a, , b] = t.players;
+  at(a, 1, 1); at(b, 9, 9);
+  b.alive = false; b.down = e.DOWN_T; b.downBy = null;
+  step(e, t, e.DOWN_T + 0.2);
+  assert.ok(!b.alive && b.down === 0, 'out for good after the countdown');
+});
+
 test('survival: waves come, the shop is open between them, and the game ends when everyone is out', () => {
   const e = loadEngine();
   const g = coop(e, 'v', 1);

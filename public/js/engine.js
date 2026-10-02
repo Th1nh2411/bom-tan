@@ -175,6 +175,7 @@ function newGame(slots, teams, opts = {}) {
   return g;
 }
 const isPve = m => m === 'v' || m === 'b' || m === 'c' || m === 'h';
+const isCoop = m => m === 'v' || m === 'b' || m === 'c';   // everyone against the monsters (not boss hunt)
 
 function blocked(g, x, y, p) {
   if (x < 0 || y < 0 || x >= W || y >= H) return true;
@@ -524,7 +525,8 @@ function stepGame(g, inputs, dt, scores) {
     } else if (p.down > 0) {
       const saver = g.players.find(q => q.alive && q.team === p.team && Math.hypot(q.x - p.x, q.y - p.y) < REVIVE_DIST);
       if (saver) { p.alive = true; p.down = 0; p.inv = REVIVE_INV; p.pass = []; g.revives.push([saver.id, p.id]); }
-      else { p.down -= dt; if (p.down <= 0) { p.down = 0; g.kills.push([p.downBy, p.id]); } }
+      // co-op: no countdown, a downed player waits until someone comes (the round ends once nobody stands)
+      else if (!isCoop(g.mode)) { p.down -= dt; if (p.down <= 0) { p.down = 0; g.kills.push([p.downBy, p.id]); } }
     }
   }
   if (g.teams) {

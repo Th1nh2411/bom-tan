@@ -512,7 +512,9 @@ function resetStats(p) { p.maxB = 1; p.fire = 2; p.spd = 0; p.kick = false; p.sh
 // players who are out come back (between waves, and on a new stage)
 function respawnDead(g) {
   for (const p of g.players) {
-    if (p.alive || p.down > 0) continue;
+    if (p.alive) continue;
+    // still waiting for a rescue: stand up where they are, keeping their power-ups
+    if (p.down > 0) { p.alive = true; p.down = 0; p.inv = 2; p.pass = []; continue; }
     const i = safeCell(g);
     if (i < 0) continue;
     resetStats(p);
@@ -595,7 +597,7 @@ function nextStage(g) {
   g.bombs = []; g.flames.clear(); g.burn.clear(); g.drops = [];
   stageBoard(g);
   for (const p of g.players) {
-    if (!p.alive) resetStats(p);
+    if (!p.alive && !(p.down > 0)) resetStats(p);   // downed players were never out: they keep their power-ups
     p.alive = true; p.down = 0; p.dropped = false; p.inv = 1.5; p.pass = []; p.lock = -1; p.lastTp = null;
   }
   fillStage(g);
