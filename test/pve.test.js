@@ -40,8 +40,20 @@ test('a bomb kills a monster and pays its owner; a monster touch knocks a player
   assert.equal(g.players[0].coins, e.MOB_KINDS.slime.coin);
   e.addMob(g, 'bat', e.idx(9, 9));
   g.mobs[0].wait = 99;
+  const q = g.players[1];
+  assert.equal(q.hp, 3, 'co-op players start with 3 lives');
   step(e, g, 0.05);
-  assert.ok(!g.players[1].alive && g.players[1].down > 0, 'knocked down, waiting for a rescue');
+  assert.ok(q.alive && q.hp === 2, 'first touch costs a life');
+  step(e, g, 3);   // the bat stays on them: a life per touch once the blink wears off
+  assert.ok(!q.alive && q.down > 0, 'out of lives: knocked down, waiting for a rescue');
+  at(g.players[0], 9, 9); g.mobs = [];
+  step(e, g, 0.05);
+  assert.ok(q.alive && q.hp === 1, 'rescued with one life');
+  e.respawnDead(g);
+  assert.equal(q.hp, 1, 'standing players keep what they have between waves');
+  q.alive = false; q.down = e.DOWN_T;
+  e.respawnDead(g);
+  assert.equal(q.hp, 3, 'back to full after a wave');
 });
 
 test('co-op: a downed player waits for a rescue with no time limit; the round is lost once nobody stands', () => {

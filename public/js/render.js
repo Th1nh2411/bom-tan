@@ -238,8 +238,9 @@ function draw(dt) {
   }
   for (const id of [...disp.keys()]) if (!seen.has(id)) disp.delete(id);
   if (s.bo) drawBoss(s.bo, now);
-  for (const p of s.pl) if (p.boss && p.alive) {
-    // lives over the boss player's head
+  const coop = PVE_MODES.includes(s.md);
+  for (const p of s.pl) if ((p.boss || coop) && p.alive && p.hp > 0) {
+    // lives under the boss player, and under everyone in the co-op modes
     const d = disp.get(p.id) || p, cx = d.x * T + T / 2, cy = d.y * T + T / 2;
     ctx.font = `600 ${Math.max(10, Math.round(T * .3))}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#c77f8c'; ctx.fillText('♥'.repeat(Math.min(p.hp, 8)), cx, cy + T * .5);

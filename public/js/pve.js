@@ -16,6 +16,7 @@ const BOSS_KINDS = ['king', 'dragon', 'golem', 'wraith'];
 const BOSS_NAMES = { king: 'Vua Bom', dragon: 'Rồng Lửa', golem: 'Người Đá', wraith: 'Hồn Ma' };
 const BOSS_CD = { king: 4.5, dragon: 3.5, golem: 5, wraith: 3 };   // seconds between attacks (x0.65 when enraged)
 const SHOP = { b: 3, f: 3, s: 2, k: 4, h: 5 };                     // survival shop prices, in coins
+const COOP_LIVES = 3;                                               // hits a player takes in the co-op modes before going down
 const WAVE_BREAK = 8, HUNT_T = 120, MOB_HIT_CD = 0.6, BOSS_HIT_CD = 0.7, STAGE_CLEAR_T = 3, SKILL_CD = 10;
 // campaign: mob counts are for one player and grow with the party
 // boxes: share of free cells with a box. Kept low: monsters need room to come at you (and boxes hide the exit)
@@ -43,6 +44,7 @@ function setupPve(g, opts) {
   if (g.mode === 'h' && g.players.length < 2) g.mode = 'b';   // a hunt needs hunters
   g.teams = true;
   for (const p of g.players) { p.team = 0; p.coins = 0; p.mk = 0; p.dmg = 0; }
+  if (g.mode !== 'h') for (const p of g.players) p.hp = COOP_LIVES;   // co-op: a few hits before going down
   const n = g.players.length;
   if (g.mode === 'v') { layBoxes(g, WAVE_BOXES); g.wave = 0; g.brk = 1.5; }
   else if (g.mode === 'b') {
@@ -519,11 +521,11 @@ function respawnDead(g) {
   for (const p of g.players) {
     if (p.alive) continue;
     // still waiting for a rescue: stand up where they are, keeping their power-ups
-    if (p.down > 0) { p.alive = true; p.down = 0; p.inv = 2; p.pass = []; continue; }
+    if (p.down > 0) { p.alive = true; p.down = 0; p.hp = COOP_LIVES; p.inv = 2; p.pass = []; continue; }
     const i = safeCell(g);
     if (i < 0) continue;
     resetStats(p);
-    p.alive = true; p.down = 0; p.dropped = false; p.inv = 2; p.pass = []; p.lock = -1;
+    p.alive = true; p.down = 0; p.hp = COOP_LIVES; p.dropped = false; p.inv = 2; p.pass = []; p.lock = -1;
     p.x = i % W; p.y = (i / W) | 0;
   }
 }
@@ -603,7 +605,7 @@ function nextStage(g) {
   stageBoard(g);
   for (const p of g.players) {
     if (!p.alive && !(p.down > 0)) resetStats(p);   // downed players were never out: they keep their power-ups
-    p.alive = true; p.down = 0; p.dropped = false; p.inv = 1.5; p.pass = []; p.lock = -1; p.lastTp = null;
+    p.alive = true; p.down = 0; p.hp = COOP_LIVES; p.dropped = false; p.inv = 1.5; p.pass = []; p.lock = -1; p.lastTp = null;
   }
   fillStage(g);
 }
