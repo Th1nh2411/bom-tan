@@ -237,10 +237,9 @@ function draw(dt) {
     }
   }
   for (const id of [...disp.keys()]) if (!seen.has(id)) disp.delete(id);
-  if (s.bo) drawBoss(s.bo, now);
-  const soloCoop = PVE_MODES.includes(s.md) && s.pl.length === 1;   // only a lone co-op player has extra lives
-  for (const p of s.pl) if ((p.boss || soloCoop) && p.alive && p.hp > 0) {
-    // lives under the boss player, and under a lone player in the co-op modes
+  if (s.bo) drawBoss(s.bo, now, s);
+  for (const p of s.pl) if (p.boss && p.alive) {
+    // lives under the boss player's feet, so the hunters can see them
     const d = disp.get(p.id) || p, cx = d.x * T + T / 2, cy = d.y * T + T / 2;
     ctx.font = `600 ${Math.max(10, Math.round(T * .3))}px ${EMOJI_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillStyle = '#c77f8c'; ctx.fillText('♥'.repeat(Math.min(p.hp, 8)), cx, cy + T * .5);
@@ -248,6 +247,7 @@ function draw(dt) {
   if (s.ev === 'dark') drawDarkness(s, now);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // HUD: no screen shake
   drawPveHud(s, now);
+  drawLivesHud(s);
   drawEventHud(s);
 }
 
@@ -357,7 +357,6 @@ function drawEventHud(s) {
 
 /* ---------- co-op and boss modes: monsters, bosses, warnings, the exit, banners ---------- */
 const MOB_COLORS = ['#8fac7a', '#9d8fbf', '#d8d4e8', '#c77f8c', '#86adc0'];
-const BOSS_COLORS = ['#3a3a3a', '#c08a62', '#8a8f96', '#b9b0d8'];
 const BOSS_LABELS = ['Vua Bom', 'Rồng Lửa', 'Người Đá', 'Hồn Ma'];
 const UI_FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';   // text on the board (the emoji font spaces Vietnamese oddly)
 const mobDisp = new Map();
@@ -434,44 +433,196 @@ function drawMob(m, cx, cy, now) {
   ctx.fillStyle = '#181818'; ctx.beginPath(); ctx.arc(cx - r * .3 + ex * 1.4, cy - r * .05 + ey * 1.4, r * .09, 0, 7); ctx.arc(cx + r * .3 + ex * 1.4, cy - r * .05 + ey * 1.4, r * .09, 0, 7); ctx.fill();
   ctx.restore();
 }
-function drawBoss(b, now) {
-  // about 2 cells across, the size of its round hitbox (BOSS_R in pve.js)
-  const cx = (b.x + .5) * T, cy = (b.y + .5) * T, R = T * .92 * (1 + Math.sin(now / (b.ph === 2 ? 90 : 220)) * .03);
+/* ---------- bosses: about 2 cells across (the size of their round hitbox, BOSS_R in pve.js) ---------- */
+function shade(hex, f) {   // lighten (f > 0) or darken (f < 0) a #rrggbb colour
+  const n = parseInt(hex.slice(1), 16), t = f < 0 ? 0 : 255, a = Math.abs(f);
+  const c = k => Math.round(((n >> k) & 255) + (t - ((n >> k) & 255)) * a);
+  return `rgb(${c(16)},${c(8)},${c(0)})`;
+}
+// a body filled with a soft light from the top-left
+function bodyFill(cx, cy, R, base) {
+  const gr = ctx.createRadialGradient(cx - R * .35, cy - R * .45, R * .1, cx, cy, R * 1.15);
+  gr.addColorStop(0, shade(base, .45)); gr.addColorStop(.55, base); gr.addColorStop(1, shade(base, -.45));
+  return gr;
+}
+function bossEyes(cx, cy, R, lx, ly, angry, glow) {
+  for (const sd of [-1, 1]) {
+    const ex = cx + sd * R * .34, ey = cy - R * .08;
+    ctx.fillStyle = glow || (angry ? '#ffd6dc' : '#fff');
+    ctx.beginPath(); ctx.ellipse(ex, ey, R * .19, R * (angry ? .14 : .2), 0, 0, 7); ctx.fill();
+    ctx.fillStyle = angry ? '#b3122b' : '#141414';
+    ctx.beginPath(); ctx.arc(ex + lx * R * .07, ey + ly * R * .06, R * .085, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.beginPath(); ctx.arc(ex + lx * R * .07 - R * .03, ey + ly * R * .06 - R * .035, R * .03, 0, 7); ctx.fill();
+  }
+  if (angry) {   // frowning brows
+    ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, R * .09); ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const sd of [-1, 1]) { ctx.moveTo(cx + sd * R * .56, cy - R * .4); ctx.lineTo(cx + sd * R * .16, cy - R * .26); }
+    ctx.stroke(); ctx.lineCap = 'butt';
+  }
+}
+function drawBoss(b, now, s) {
+  const cx = (b.x + .5) * T, cy = (b.y + .5) * T, angry = b.ph === 2;
+  const R = T * .92 * (1 + Math.sin(now / (angry ? 90 : 220)) * .03);
+  // eyes follow you
+  let lx = 0, ly = 0;
+  const me = s && s.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
+  if (me && me.alive) { const dx = me.x - b.x, dy = me.y - b.y, d = Math.hypot(dx, dy) || 1; lx = dx / d; ly = dy / d; }
   ctx.save();
   ctx.globalAlpha = b.vis ? 1 : .18;   // the wraith fades out between appearances
-  ctx.fillStyle = '#00000066'; ctx.beginPath(); ctx.ellipse(cx, cy + R * .95, R * .8, R * .18, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = b.hit ? '#ffffff' : BOSS_COLORS[b.k]; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, T * .08);
-  if (b.k === 0) {            // Vua Bom: a giant bomb with a crown and a lit fuse
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#ffffff33'; ctx.beginPath(); ctx.arc(cx - R * .4, cy - R * .35, R * .2, 0, 7); ctx.fill();
-    ctx.fillStyle = '#bfa377'; ctx.beginPath();
-    ctx.moveTo(cx - R * .55, cy - R * .78); ctx.lineTo(cx - R * .55, cy - R * 1.25); ctx.lineTo(cx - R * .28, cy - R * 1.0); ctx.lineTo(cx, cy - R * 1.35);
-    ctx.lineTo(cx + R * .28, cy - R * 1.0); ctx.lineTo(cx + R * .55, cy - R * 1.25); ctx.lineTo(cx + R * .55, cy - R * .78); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = (now / 80 | 0) % 2 ? '#d6c28e' : '#c77f8c'; ctx.beginPath(); ctx.arc(cx + R * .85, cy - R * .7, T * .1, 0, 7); ctx.fill();
-  } else if (b.k === 1) {     // Rồng Lửa: a spiky head
+  // aura: warm when calm, a red pulse when enraged
+  const pulse = .5 + .5 * Math.sin(now / (angry ? 110 : 400));
+  const aura = ctx.createRadialGradient(cx, cy, R * .6, cx, cy, R * 1.6);
+  aura.addColorStop(0, angry ? `rgba(230,60,80,${.35 + .25 * pulse})` : `rgba(255,220,160,${.12 + .08 * pulse})`);
+  aura.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = aura; ctx.beginPath(); ctx.arc(cx, cy, R * 1.6, 0, 7); ctx.fill();
+  // ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(cx, cy + R * .95, R * .85, R * .2, 0, 0, 7); ctx.fill();
+  ctx.lineWidth = Math.max(2, T * .07); ctx.strokeStyle = '#111'; ctx.lineJoin = 'round';
+
+  if (b.k === 0) {            // Vua Bom: a glossy giant bomb, a gold crown, a sparking fuse
+    ctx.fillStyle = bodyFill(cx, cy, R, '#3b3f4a'); ctx.beginPath(); ctx.arc(cx, cy + R * .05, R, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.beginPath(); ctx.ellipse(cx - R * .42, cy - R * .4, R * .22, R * .13, -.7, 0, 7); ctx.fill();
+    // fuse cap and fuse
+    ctx.fillStyle = bodyFill(cx + R * .62, cy - R * .62, R * .2, '#8d8f96'); rr(cx + R * .48, cy - R * .82, R * .3, R * .24, R * .05); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#9b7a4a'; ctx.lineWidth = Math.max(2, R * .07);
+    ctx.beginPath(); ctx.moveTo(cx + R * .63, cy - R * .82); ctx.quadraticCurveTo(cx + R * .8, cy - R * 1.15, cx + R * 1.0, cy - R * 1.05); ctx.stroke();
+    for (let k = 0; k < 6; k++) {   // sparks
+      const a = now / 60 + k * 1.05, rr2 = R * (.08 + .12 * ((now / 70 + k) % 1));
+      ctx.fillStyle = k % 2 ? '#ffe28a' : '#ff8c42';
+      ctx.beginPath(); ctx.arc(cx + R * 1.0 + Math.cos(a) * rr2, cy - R * 1.05 + Math.sin(a) * rr2, Math.max(1.5, R * .045), 0, 7); ctx.fill();
+    }
+    // crown
+    const cw = R * .62, by = cy - R * .82;
+    const gold = ctx.createLinearGradient(0, by - R * .5, 0, by); gold.addColorStop(0, '#ffe9a3'); gold.addColorStop(1, '#c8962e');
+    ctx.fillStyle = gold; ctx.strokeStyle = '#5a3d0c'; ctx.lineWidth = Math.max(1.5, R * .05);
+    ctx.beginPath(); ctx.moveTo(cx - cw, by); ctx.lineTo(cx - cw, by - R * .38); ctx.lineTo(cx - cw * .5, by - R * .2); ctx.lineTo(cx, by - R * .5);
+    ctx.lineTo(cx + cw * .5, by - R * .2); ctx.lineTo(cx + cw, by - R * .38); ctx.lineTo(cx + cw, by); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (const [gx, col] of [[-.5, '#e05a6e'], [0, '#5aa7e0'], [.5, '#62c08a']]) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx + cw * gx, by - R * .1, R * .06, 0, 7); ctx.fill(); }
+    bossEyes(cx, cy + R * .05, R, lx, ly, angry);
+    // the mouth
+    ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, R * .07);
     ctx.beginPath();
-    for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2, rr2 = k % 2 ? R : R * 1.22; ctx.lineTo(cx + Math.cos(a) * rr2, cy + Math.sin(a) * rr2); }
+    if (angry) ctx.arc(cx, cy + R * .62, R * .26, Math.PI * 1.2, Math.PI * 1.8);   // a scowl
+    else ctx.arc(cx, cy + R * .3, R * .28, .15 * Math.PI, .85 * Math.PI);          // the mouth
+    ctx.stroke();
+  } else if (b.k === 1) {     // Rồng Lửa: a horned, scaly head breathing embers
+    const base = angry ? '#d4553a' : '#d9773f';
+    // horns
+    ctx.fillStyle = '#efe3c4';
+    for (const sd of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(cx + sd * R * .45, cy - R * .6); ctx.quadraticCurveTo(cx + sd * R * 1.05, cy - R * 1.0, cx + sd * R * .95, cy - R * 1.35);
+      ctx.quadraticCurveTo(cx + sd * R * .75, cy - R * .95, cx + sd * R * .2, cy - R * .78); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    // spiky frill behind the head
+    ctx.fillStyle = shade(base, -.3); ctx.beginPath();
+    for (let k = 0; k < 18; k++) { const a = k / 18 * Math.PI * 2, r2 = k % 2 ? R * .95 : R * 1.2; ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); }
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#e6ddc8'; ctx.beginPath(); ctx.ellipse(cx, cy + R * .45, R * .45, R * .22, 0, 0, 7); ctx.fill();
-  } else if (b.k === 2) {     // Người Đá: a cracked stone block
-    rr(cx - R, cy - R, R * 2, R * 2, R * .25); ctx.fill(); ctx.stroke();
-    ctx.strokeStyle = '#5a5e64'; ctx.lineWidth = Math.max(1.5, T * .05); ctx.beginPath();
-    ctx.moveTo(cx - R * .7, cy - R * .2); ctx.lineTo(cx - R * .3, cy + R * .1); ctx.lineTo(cx - R * .45, cy + R * .6);
-    ctx.moveTo(cx + R * .5, cy - R * .8); ctx.lineTo(cx + R * .25, cy - R * .4); ctx.stroke();
-  } else {                    // Hồn Ma: a big sheet
-    const base = cy + R * .9;
-    ctx.beginPath(); ctx.arc(cx, cy - R * .1, R, Math.PI, 0); ctx.lineTo(cx + R, base);
-    for (let k = 0; k < 6; k++) ctx.lineTo(cx + R - (k + .5) * R / 3, base - (k % 2 ? 0 : R * .25)), ctx.lineTo(cx + R - (k + 1) * R / 3, base);
+    ctx.fillStyle = bodyFill(cx, cy, R * .9, base); ctx.beginPath(); ctx.arc(cx, cy, R * .88, 0, 7); ctx.fill(); ctx.stroke();
+    // scales
+    ctx.strokeStyle = shade(base, -.35); ctx.lineWidth = Math.max(1, R * .03);
+    for (let r2 = 0; r2 < 3; r2++) for (let k = 0; k < 5; k++) {
+      const sx = cx + (k - 2) * R * .26 + (r2 % 2) * R * .13, sy = cy - R * .62 + r2 * R * .14;
+      if (Math.hypot(sx - cx, sy - cy) < R * .8) { ctx.beginPath(); ctx.arc(sx, sy, R * .1, 0, Math.PI); ctx.stroke(); }
+    }
+    ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, T * .07);
+    // snout with nostrils and teeth
+    ctx.fillStyle = bodyFill(cx, cy + R * .45, R * .5, '#f0c79a'); ctx.beginPath(); ctx.ellipse(cx, cy + R * .45, R * .5, R * .3, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#4a1a10'; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(cx + sd * R * .17, cy + R * .36, R * .06, R * .04, 0, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#fff'; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.moveTo(cx + sd * R * .3, cy + R * .6); ctx.lineTo(cx + sd * R * .22, cy + R * .78); ctx.lineTo(cx + sd * R * .14, cy + R * .62); ctx.closePath(); ctx.fill(); }
+    bossEyes(cx, cy - R * .05, R * .9, lx, ly, angry, angry ? '#ffcf5a' : '#ffe9b0');
+    for (let k = 0; k < 4; k++) {   // embers rising from the nostrils
+      const t = (now / 900 + k / 4) % 1;
+      ctx.globalAlpha = (b.vis ? 1 : .18) * (1 - t);
+      ctx.fillStyle = k % 2 ? '#ffb347' : '#ff6a3d';
+      ctx.beginPath(); ctx.arc(cx + Math.sin(now / 200 + k) * R * .15, cy + R * .3 - t * R * .9, Math.max(1.5, R * .05 * (1 - t)), 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = b.vis ? 1 : .18;
+  } else if (b.k === 2) {     // Người Đá: a chiselled stone block, glowing cracks, a bit of moss
+    const base = '#8a8f96';
+    ctx.fillStyle = bodyFill(cx, cy, R, base); rr(cx - R, cy - R * .95, R * 2, R * 1.95, R * .28); ctx.fill(); ctx.stroke();
+    // bevel
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = Math.max(1, R * .05);
+    rr(cx - R * .86, cy - R * .82, R * 1.72, R * 1.68, R * .2); ctx.stroke();
+    // moss
+    ctx.fillStyle = '#6f9a5a';
+    for (const [mx, my, mr] of [[-.7, -.85, .2], [-.48, -.9, .15], [.62, .78, .16]]) { ctx.beginPath(); ctx.arc(cx + R * mx, cy + R * my, R * mr, 0, 7); ctx.fill(); }
+    // cracks: dark, or glowing lava when enraged
+    const glow = angry ? `rgba(255,${120 + 60 * pulse | 0},60,1)` : '#4c5157';
+    ctx.strokeStyle = glow; ctx.lineWidth = Math.max(1.5, R * (angry ? .07 : .045));
+    if (angry) { ctx.shadowColor = '#ff6a3d'; ctx.shadowBlur = R * .3; }
+    ctx.beginPath();
+    ctx.moveTo(cx - R * .75, cy - R * .15); ctx.lineTo(cx - R * .4, cy + R * .1); ctx.lineTo(cx - R * .5, cy + R * .55); ctx.lineTo(cx - R * .25, cy + R * .75);
+    ctx.moveTo(cx + R * .55, cy - R * .8); ctx.lineTo(cx + R * .3, cy - R * .45); ctx.lineTo(cx + R * .5, cy - R * .2);
+    ctx.moveTo(cx + R * .75, cy + R * .25); ctx.lineTo(cx + R * .45, cy + R * .45);
+    ctx.stroke(); ctx.shadowBlur = 0;
+    bossEyes(cx, cy - R * .1, R, lx, ly, angry, angry ? '#ffb070' : '#d8f0ff');
+    ctx.fillStyle = '#3f4348'; rr(cx - R * .35, cy + R * .38, R * .7, R * .14, R * .07); ctx.fill();   // a stern mouth
+  } else {                    // Hồn Ma: a see-through sheet that sways, with hollow glowing eyes
+    const base = '#b9b0d8', sway = Math.sin(now / 300) * R * .06;
+    ctx.globalAlpha = (b.vis ? 1 : .18) * .9;
+    const gr = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+    gr.addColorStop(0, '#efeaff'); gr.addColorStop(.6, base); gr.addColorStop(1, 'rgba(120,105,170,.55)');
+    ctx.fillStyle = gr; ctx.strokeStyle = '#2a2440';
+    const top = cy - R * .15, bottom = cy + R * .95;
+    ctx.beginPath(); ctx.arc(cx + sway, top, R, Math.PI, 0);
+    ctx.lineTo(cx + R + sway * 1.5, bottom);
+    for (let k = 0; k < 6; k++) {   // a wavy hem
+      const x1 = cx + R - (k + .5) * R / 3 + sway * 1.5, x2 = cx + R - (k + 1) * R / 3 + sway * 1.5, wob = Math.sin(now / 160 + k) * R * .08;
+      ctx.quadraticCurveTo(x1, bottom - R * .28 + wob, x2, bottom);
+    }
     ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = b.vis ? 1 : .18;
+    // hollow eyes with a glow, and an "o" mouth
+    const eg = angry ? '#ff5a78' : '#7fe0ff';
+    ctx.shadowColor = eg; ctx.shadowBlur = R * .35;
+    for (const sd of [-1, 1]) { ctx.fillStyle = '#1b1530'; ctx.beginPath(); ctx.ellipse(cx + sway + sd * R * .33, cy - R * .25, R * .17, R * .24, 0, 0, 7); ctx.fill(); }
+    for (const sd of [-1, 1]) { ctx.fillStyle = eg; ctx.beginPath(); ctx.arc(cx + sway + sd * R * .33 + lx * R * .05, cy - R * .25 + ly * R * .06, R * .06, 0, 7); ctx.fill(); }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#1b1530'; ctx.beginPath(); ctx.ellipse(cx + sway, cy + R * .2, R * .12, R * (.14 + .04 * Math.sin(now / 250)), 0, 0, 7); ctx.fill();
   }
-  // eyes: red and frowning when enraged
-  const ang = b.ph === 2;
-  ctx.fillStyle = ang ? '#e07a86' : '#fff';
-  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + sd * R * .35, cy - R * .1, R * .17, 0, 7); ctx.fill(); }
-  ctx.fillStyle = '#111';
-  for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + sd * R * .33, cy - R * .07, R * .08, 0, 7); ctx.fill(); }
-  if (ang) { ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(2, T * .07); ctx.beginPath(); for (const sd of [-1, 1]) { ctx.moveTo(cx + sd * R * .55, cy - R * .42); ctx.lineTo(cx + sd * R * .15, cy - R * .25); } ctx.stroke(); }
+  if (b.hit) {   // flash white when hit
+    ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.beginPath(); ctx.arc(cx, cy, R * 1.05, 0, 7); ctx.fill();
+  }
   ctx.restore();
+}
+/* ---------- your lives, pinned to the top-left corner of the board ---------- */
+const maxLives = new Map();   // the most lives each player has had this round, to draw the lost ones empty
+function heart(x, y, sz) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + sz * .3);
+  ctx.bezierCurveTo(x, y, x - sz * .5, y, x - sz * .5, y + sz * .3);
+  ctx.bezierCurveTo(x - sz * .5, y + sz * .6, x, y + sz * .8, x, y + sz);
+  ctx.bezierCurveTo(x, y + sz * .8, x + sz * .5, y + sz * .6, x + sz * .5, y + sz * .3);
+  ctx.bezierCurveTo(x + sz * .5, y, x, y, x, y + sz * .3);
+  ctx.closePath();
+}
+function drawLivesHud(s) {
+  if (s.ph !== 'play' && s.ph !== 'end') { maxLives.clear(); return; }
+  const me = s.pl.find(p => p.id === (mode === 'local' ? 'p1' : myPeer));
+  // shown when lives matter: a lone player in a co-op mode, or the boss in boss hunt
+  if (!me || !(me.boss || (PVE_MODES.includes(s.md) && s.pl.length === 1))) return;
+  const hp = me.alive ? me.hp : 0, max = Math.max(hp, maxLives.get(me.id) || 0);
+  maxLives.set(me.id, max);
+  if (!max) return;
+  const sz = Math.max(14, Math.round(T * .42)), gap = sz * .28, pad = sz * .4;
+  const w = pad * 2 + max * sz + (max - 1) * gap, h = sz + pad * 2, x0 = T * .25, y0 = T * .25;
+  ctx.fillStyle = 'rgba(17,17,17,.82)'; rr(x0, y0, w, h, h / 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
+  for (let k = 0; k < max; k++) {
+    const cx = x0 + pad + sz / 2 + k * (sz + gap), cy = y0 + pad;
+    heart(cx, cy, sz);
+    if (k < hp) {
+      const gr = ctx.createLinearGradient(0, cy, 0, cy + sz);
+      gr.addColorStop(0, '#ff8a9a'); gr.addColorStop(1, '#d4485e');
+      ctx.fillStyle = gr; ctx.fill();
+      ctx.strokeStyle = '#7a1f2e'; ctx.lineWidth = Math.max(1, sz * .07); ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = Math.max(1, sz * .08); ctx.stroke();
+    }
+  }
 }
 function drawPveHud(s, now) {
   const bw = W * T;
