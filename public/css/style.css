@@ -192,7 +192,8 @@ body.view-doc .editor,body.view-doc .pad{display:none}
 .tagm.team{background:#7d9bc426;color:var(--blue)}
 .tagm.coop{background:#9d8fbf26;color:var(--purple)}
 .tagm.boss{background:#c77f8c26;color:var(--red)}
-.editor{display:flex;width:min(100%, calc((100dvh - 170px) * var(--board-ar, 1.23)));min-width:260px;border:1px solid var(--line);overflow:hidden;background:var(--chrome)}
+/* the board fits the window both ways; never squeezed shorter than the canvas (the stage scrolls instead) */
+.editor{display:flex;flex-shrink:0;width:min(100%, calc((100dvh - 170px) * var(--board-ar, 1.23)));min-width:260px;border:1px solid var(--line);overflow:hidden;background:var(--chrome)}
 .gutter{flex:none;width:max(26px, calc(var(--t) * .9));display:flex;flex-direction:column;background:var(--bg);user-select:none}
 .gutter span{height:var(--t);display:flex;align-items:center;justify-content:flex-end;padding-right:min(10px, calc(var(--t) * .2));font-family:var(--mono);font-size:min(12px, max(10px, calc(var(--t) * .45)));color:var(--muted)}
 .gutter span.cur{color:var(--ink)}
@@ -240,7 +241,7 @@ canvas{display:block;width:100%;height:auto;touch-action:none}
   body.drawer-open .side{transform:none;visibility:visible;transition:transform .2s ease}
   .scrim{display:block;position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .2s}
   body.drawer-open .scrim{opacity:1;pointer-events:auto}
-  .editor{width:100%}
+  .editor{width:min(100%, calc((100dvh - 120px) * var(--board-ar, 1.23)))}
   .statusbar{height:auto;padding:3px 10px}
 }
 @media (prefers-reduced-motion: reduce){ .overlay,.side,.scrim,.login-gate{transition:none!important} }
