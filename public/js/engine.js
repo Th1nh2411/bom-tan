@@ -185,36 +185,65 @@ function blocked(g, x, y, p) {
   return false;
 }
 
+/* ---------- free movement ----------
+   A player is a square PH cells either side of (x, y), moving freely (diagonals too) and stopping flush
+   against walls, boxes and bombs. Corridors are one cell wide, so when a wall stops you near an opening
+   you are nudged sideways into it, which makes turning corners smooth without snapping to the grid. */
+const PH = 0.36;            // half a player's size: fits a one-cell corridor with a little room
+const ASSIST = 0.6;         // how far off a lane you can be and still get nudged into it
+const EPS = 1e-6;
+// the first and last cell (column or row) a player-sized square centred at v overlaps
+const spanOf = v => [Math.round(v - PH + EPS), Math.round(v + PH - EPS)];
+// does a player at (x, y) overlap cell i?
+function touchesCell(x, y, i) {
+  const cx = i % W, cy = (i / W) | 0, [x0, x1] = spanOf(x), [y0, y1] = spanOf(y);
+  return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+}
+// would a player at (x, y) overlap something solid? Cells it already overlaps at (fx, fy) do not count,
+// so nobody gets stuck in a bomb dropped on them or a box that grew back under them
+function boxBlocked(g, x, y, p, fx, fy) {
+  const [x0, x1] = spanOf(x), [y0, y1] = spanOf(y);
+  for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+    if (!blocked(g, cx, cy, p)) continue;
+    if (fx !== undefined && touchesCell(fx, fy, idx(cx, cy))) continue;
+    return true;
+  }
+  return false;
+}
+// move along one axis by d * step, stopping flush against whatever is in the way; returns the distance moved
+function moveAxis(g, p, axis, d, step, fx, fy) {
+  const hits = v => (axis === 'x' ? boxBlocked(g, v, p.y, p, fx, fy) : boxBlocked(g, p.x, v, p, fx, fy));
+  const from = p[axis], to = from + d * step;
+  if (!hits(to)) { p[axis] = to; return step; }
+  // flush against the far edge of the cells we overlap now
+  const edge = d > 0 ? Math.round(from + PH - EPS) + 0.5 - PH - EPS : Math.round(from - PH + EPS) - 0.5 + PH + EPS;
+  if ((edge - from) * d > 0 && (to - edge) * d > 0 && !hits(edge)) { p[axis] = edge; return Math.abs(edge - from); }
+  return 0;
+}
 function tryMove(g, p, dx, dy, step) {
-  const horiz = dx !== 0, d = horiz ? dx : dy;
-  const main = horiz ? 'x' : 'y', side = horiz ? 'y' : 'x';
-  const free = (m, s) => !(horiz ? blocked(g, m, s, p) : blocked(g, s, m, p));
-  const cm = Math.round(p[main]), cs = Math.round(p[side]);
-  const off = p[side] - cs;
-  if (Math.abs(off) > 1e-3) {
-    // turning between two cells: finish the step you were taking (the lane ahead) when it is open,
-    // otherwise fall back to the lane behind; never pull back past half a cell for nothing
-    const near = cs, far = cs + (off > 0 ? 1 : -1);
-    const went = horiz ? p.my : p.mx;   // last move along the axis we are leaving
-    const ahead = went > 0 ? Math.ceil(p[side]) : went < 0 ? Math.floor(p[side]) : near;
-    const lanes = ahead === far ? [far, near] : [near, far];
-    for (const lane of lanes) {
-      const dist = Math.abs(p[side] - lane);
-      if (dist > 0.75) continue;
-      if (free(cm + d, lane) && (lane === near || free(cm, lane))) {
-        const dir = Math.sign(lane - p[side]);
-        p[side] = dist <= step ? lane : p[side] + dir * step;
-        if (horiz) p.my = dir; else p.mx = dir;
-        return;
-      }
-    }
+  const fx = p.x, fy = p.y;
+  if (dx && dy) {
+    // diagonal: each axis on its own, so you slide along a wall instead of stopping
+    const s = step / Math.SQRT2;
+    moveAxis(g, p, 'x', dx, s, fx, fy); moveAxis(g, p, 'y', dy, s, fx, fy);
     return;
   }
-  p[side] = cs;
-  if (horiz) { p.mx = d; p.my = 0; } else { p.my = d; p.mx = 0; }
-  let n = p[main] + d * step;
-  if (!free(cm + d, cs)) n = d > 0 ? Math.min(n, cm) : Math.max(n, cm);
-  p[main] = n;
+  const horiz = dx !== 0, d = horiz ? dx : dy, main = horiz ? 'x' : 'y', side = horiz ? 'y' : 'x';
+  const moved = moveAxis(g, p, main, d, step, fx, fy);
+  if (moved >= step - EPS) return;
+  // stopped by something: if an opening is close beside us, slide towards it
+  const here = Math.round(p[main]), ahead = here + d, cs = Math.round(p[side]);
+  const open = lane => (horiz ? !blocked(g, ahead, lane, p) && !blocked(g, here, lane, p)
+                              : !blocked(g, lane, ahead, p) && !blocked(g, lane, here, p));
+  let best = null;
+  for (const lane of [cs, cs - 1, cs + 1]) {
+    const dist = Math.abs(lane - p[side]);
+    if (dist > EPS && dist <= ASSIST && open(lane) && (best === null || dist < Math.abs(best - p[side]))) best = lane;
+  }
+  if (best === null) return;
+  const left = step - moved, dir = Math.sign(best - p[side]);
+  const target = Math.abs(best - p[side]) <= left ? best : p[side] + dir * left;
+  if (!boxBlocked(g, horiz ? p.x : target, horiz ? target : p.y, p, fx, fy)) p[side] = target;
 }
 
 /* returns true when the player was teleported */
@@ -223,7 +252,7 @@ function portalCheck(p) {
   if (p.lock !== -1 && p.lock !== i) p.lock = -1;
   const ex = portalExit(i);
   if (ex < 0 || p.lock === i) return false;
-  if (Math.abs(p.x - cx) < 0.2 && Math.abs(p.y - cy) < 0.2) {
+  if (Math.abs(p.x - cx) < 0.3 && Math.abs(p.y - cy) < 0.3) {
     p.x = ex % W; p.y = (ex / W) | 0; p.lock = ex; p.pass = [];
     return true;
   }
@@ -252,10 +281,13 @@ function applyReported(g, p, inp, dt) {
     const maxStep = speedOf(p) * dt * 1.8 + 0.02;
     const f = Math.min(1, maxStep / dist);
     const nx = p.x + (rx - p.x) * f, ny = p.y + (ry - p.y) * f;
-    const ci = idx(Math.round(p.x), Math.round(p.y));
-    const ncx = Math.round(nx), ncy = Math.round(ny);
-    const onLane = Math.abs(nx - ncx) < 0.3 || Math.abs(ny - ncy) < 0.3;
-    if (onLane && !(idx(ncx, ncy) !== ci && blocked(g, ncx, ncy, p))) { p.x = nx; p.y = ny; }
+    // the same collision rules as walking; around a corner, try each axis on its own
+    const fx = p.x, fy = p.y;
+    if (!boxBlocked(g, nx, ny, p, fx, fy)) { p.x = nx; p.y = ny; }
+    else {
+      if (!boxBlocked(g, nx, fy, p, fx, fy)) p.x = nx;
+      if (!boxBlocked(g, p.x, ny, p, fx, fy)) p.y = ny;
+    }
   }
   const i = idx(Math.round(p.x), Math.round(p.y));
   if (p.lock !== -1 && p.lock !== i) p.lock = -1;
@@ -332,7 +364,7 @@ function placeBomb(g, p, cellHint) {
   if (g.bombs.filter(b => b.owner === p.id).length >= p.maxB) return;
   const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: g.fuse || FUSE, r: p.fire, owner: p.id, sh: p.shape, sk: p.skin };
   g.bombs.push(b);
-  for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
+  for (const q of g.players) if (q.alive && touchesCell(q.x, q.y, b.i)) q.pass.push(b.id);
 }
 
 // a kill made by a ghost bomb (its owner is already out) counts toward the ghost-kill achievement
@@ -371,7 +403,7 @@ function tickDrops(g, dt) {
     const owner = g.players.find(q => q.id === d.o);
     const b = { id: ++g.bid, i: d.i, fx: d.i % W, fy: (d.i / W) | 0, vx: 0, vy: 0, lock: -1, t: GHOST_FUSE, r: 2, owner: d.o, sk: owner ? owner.skin : 0 };
     g.bombs.push(b);
-    for (const q of g.players) if (q.alive && Math.hypot(q.x - b.fx, q.y - b.fy) < 0.95) q.pass.push(b.id);
+    for (const q of g.players) if (q.alive && touchesCell(q.x, q.y, b.i)) q.pass.push(b.id);
   }
   g.drops = g.drops.filter(d => d.t > 0);
 }
@@ -457,8 +489,7 @@ function stepGame(g, inputs, dt, scores) {
     if (p.inv > 0) p.inv = Math.max(0, p.inv - dt);
     if (p.stun > 0) { p.stun = Math.max(0, p.stun - dt); if (inputs[p.id]) p.lastB = inputs[p.id].b; continue; }   // stunned zombie
     const inp = inputs[p.id] || { dx: 0, dy: 0, b: p.lastB };
-    let dx = inp.dx | 0, dy = inp.dy | 0;
-    if (dx && dy) dy = 0;
+    let dx = Math.sign(inp.dx | 0), dy = Math.sign(inp.dy | 0);   // two keys held: a diagonal
     // ice: with no key held you keep sliding the way you last went
     if (g.ev === 'ice') { if (dx || dy) p.slide = [dx, dy]; else if (p.slide) [dx, dy] = p.slide; }
     const sx = p.x, sy = p.y;
@@ -479,16 +510,17 @@ function stepGame(g, inputs, dt, scores) {
     if (p.ck === 3 && !p.zb && (p.autoT = (p.autoT || 0) - dt) <= 0) { p.autoT = 0.5; placeBomb(g, p); }
 
     // kick
-    if (p.kick && (dx || dy)) {
+    if (p.kick && (dx || dy) && !(dx && dy)) {
       const cx = Math.round(p.x), cy = Math.round(p.y);
-      if (Math.abs(p.x - cx) < 0.3 && Math.abs(p.y - cy) < 0.3) {
+      if (Math.abs(p.x - cx) < 0.45 && Math.abs(p.y - cy) < 0.45) {
         const b = g.bombs.find(o => o.i === idx(cx + dx, cy + dy) && !o.vx && !o.vy);
         if (b && !p.pass.includes(b.id) && !bombBlocked(g, cx + 2 * dx, cy + 2 * dy, b)) { b.vx = dx; b.vy = dy; b.lock = -1; }
       }
     }
 
     const ci = idx(Math.round(p.x), Math.round(p.y));
-    p.pass = p.pass.filter(id => { const b = g.bombs.find(o => o.id === id); return b && b.i === ci; });
+    // you can walk off a bomb you stand on; once you are fully off it, it blocks you
+    p.pass = p.pass.filter(id => { const b = g.bombs.find(o => o.id === id); return b && touchesCell(p.x, p.y, b.i); });
     const c = p.zb ? '.' : g.grid[ci];   // zombies do not pick things up
     if (POWERS.includes(c)) p.picks = (p.picks || 0) + 1;
     if (c === 'b') { if (g.rule !== 'onebomb') p.maxB = Math.min(8, p.maxB + 1); g.grid[ci] = '.'; }

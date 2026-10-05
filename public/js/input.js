@@ -35,7 +35,12 @@ function sendEmote(k) {
 /* ---------- input controllers ---------- */
 function makeCtl() { return { held: [], b: 0, bc: -1, sk: 0 }; }
 const ctlA = makeCtl(), ctlB = makeCtl();
-const ctlDir = c => { const d = c.held[c.held.length - 1]; return { dx: d ? d[0] : 0, dy: d ? d[1] : 0, b: c.b, bc: c.bc, sk: c.sk }; };
+// the latest key held on each axis, so two keys make a diagonal (and of two opposite keys the newer wins)
+const ctlDir = c => {
+  let dx = 0, dy = 0;
+  for (const h of c.held) { if (h[0]) dx = h[0]; if (h[1]) dy = h[1]; }
+  return { dx, dy, b: c.b, bc: c.bc, sk: c.sk };
+};
 function press(c, key, d) { if (!c.held.some(h => h[2] === key)) c.held.push([d[0], d[1], key]); inputChanged(); }
 function release(c, key) { const n = c.held.length; c.held = c.held.filter(h => h[2] !== key); if (n !== c.held.length) inputChanged(); }
 function bombPress(c) { c.b++; c.bc = (c === ctlA && pred) ? idx(Math.round(pred.x), Math.round(pred.y)) : -1; inputChanged(); }

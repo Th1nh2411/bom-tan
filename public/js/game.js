@@ -46,11 +46,10 @@ function predictStep(dt) {
   if (!pred || pred.rid !== snap.rid) pred = { rid: snap.rid, x: me.x, y: me.y, dir: me.dir, pass: [], lock: -1, err: 0, tpT: 0, bombs: new Set() };
   if (snap.g !== predGridStr) { predGridStr = snap.g; predGrid = snap.g.split(''); }
   const bombs = snap.bm.map(b => ({ id: b.i, i: b.i }));
-  const ci = idx(Math.round(pred.x), Math.round(pred.y));
-  for (const b of bombs) if (b.i === ci && !pred.bombs.has(b.i)) pred.pass.push(b.i);
+  for (const b of bombs) if (touchesCell(pred.x, pred.y, b.i) && !pred.bombs.has(b.i)) pred.pass.push(b.i);
   pred.bombs = new Set(bombs.map(b => b.i));
   const view = { grid: predGrid, bombs };
-  const pp = { x: pred.x, y: pred.y, pass: pred.pass, lock: pred.lock, mx: pred.mx, my: pred.my };
+  const pp = { x: pred.x, y: pred.y, pass: pred.pass, lock: pred.lock };
   let d = ctlDir(ctlA);
   if (me.ck === 1) d = { ...d, dx: -d.dx, dy: -d.dy };   // reversed-controls curse
   if (me.zb === 2) d = { ...d, dx: 0, dy: 0 };             // stunned zombie
@@ -64,9 +63,8 @@ function predictStep(dt) {
     if (portalCheck(pp)) { myTp++; pred.tpT = 1; sfx.teleport(); }
   }
   if (pred.slide && pp.x === ox && pp.y === oy) pred.slide = null;
-  pred.x = pp.x; pred.y = pp.y; pred.lock = pp.lock; pred.mx = pp.mx; pred.my = pp.my;
-  const ni = idx(Math.round(pred.x), Math.round(pred.y));
-  pred.pass = pp.pass.filter(i => i === ni && pred.bombs.has(i));
+  pred.x = pp.x; pred.y = pp.y; pred.lock = pp.lock;
+  pred.pass = pp.pass.filter(i => touchesCell(pred.x, pred.y, i) && pred.bombs.has(i));
   // reconcile with the server
   const err = Math.hypot(me.x - pred.x, me.y - pred.y);
   const moving = !!(d.dx || d.dy);

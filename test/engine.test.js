@@ -261,23 +261,56 @@ test('daily rule: same rule for the same date, and each rule changes the round',
   assert.equal(p.fire, 8);
 });
 
-test('turning between two cells finishes the step you were taking, and goes back only when ahead is blocked', () => {
+test('free movement: stop anywhere, flush against walls, diagonals, and a nudge into openings', () => {
   const e = loadEngine();
-  const run = (blockAhead) => {
+  const fresh = () => {
     const g = openGame(e, 1);
     const p = g.players[0];
     p.inv = 99;
     for (let y = 4; y <= 7; y++) for (let x = 4; x <= 7; x++) g.grid[e.idx(x, y)] = '.';   // open floor, no portal
-    if (blockAhead) g.grid[e.idx(6, 6)] = '#';
-    p.x = 5; p.y = 5; p.mx = p.my = 0;
-    while (p.y < 5.4) e.stepGame(g, { [p.id]: { dx: 0, dy: 1, b: 0 } }, 1 / 60, {});   // down, stop 40% into the cell
-    for (let k = 0; k < 30; k++) e.stepGame(g, { [p.id]: { dx: 1, dy: 0, b: 0 } }, 1 / 60, {});   // then right
-    return p;
+    p.x = 5; p.y = 5;
+    return [g, p];
   };
-  const open = run(false);
-  assert.equal(open.y, 6, 'kept going down to the next row');
-  assert.ok(open.x > 5, 'then turned right');
-  const blocked = run(true);
-  assert.equal(blocked.y, 5, 'row ahead blocked: back to the row behind');
-  assert.ok(blocked.x > 5);
+  const walk = (g, p, dx, dy, n) => { for (let k = 0; k < n; k++) e.stepGame(g, { [p.id]: { dx, dy, b: 0 } }, 1 / 60, {}); };
+
+  // stop between cells, then turn: no snapping back to the grid
+  let [g, p] = fresh();
+  while (p.y < 5.4) walk(g, p, 0, 1, 1);
+  const y0 = p.y;
+  walk(g, p, 1, 0, 10);
+  assert.equal(p.y, y0, 'kept its height');
+  assert.ok(p.x > 5);
+
+  // flush against a wall: the edge of the player meets the edge of the cell
+  walk(g, p, 1, 0, 200);
+  assert.ok(Math.abs(p.x - (e.W - 1.5 - 0.36)) < 0.01, 'stops flush against the border wall: ' + p.x);
+
+  // diagonal
+  [g, p] = fresh();
+  walk(g, p, 1, 1, 10);
+  assert.ok(p.x > 5 && p.y > 5 && Math.abs((p.x - 5) - (p.y - 5)) < 1e-9);
+
+  // walking right just off a corridor's line gets nudged into it
+  [g, p] = fresh();
+  g.grid[e.idx(6, 4)] = '#'; g.grid[e.idx(6, 6)] = '#';   // a one-cell gap at row 5
+  p.y = 5.4;
+  walk(g, p, 1, 0, 60);
+  assert.ok(Math.abs(p.y - 5) <= 0.5 - 0.36 + 1e-6, 'nudged just enough to fit the gap: ' + p.y);
+  assert.ok(p.x > 6, 'and went through');
+});
+
+test('a bomb you drop on yourself lets you walk off it, then blocks you', () => {
+  const e = loadEngine();
+  const g = openGame(e, 1);
+  const p = g.players[0];
+  p.inv = 99;
+  for (let x = 4; x <= 7; x++) g.grid[e.idx(x, 5)] = '.';
+  p.x = 5; p.y = 5;
+  e.stepGame(g, { [p.id]: { dx: 0, dy: 0, b: 0 } }, 1 / 60, {});
+  e.stepGame(g, { [p.id]: { dx: 0, dy: 0, b: 1 } }, 1 / 60, {});
+  assert.equal(g.bombs.length, 1);
+  for (let k = 0; k < 40; k++) e.stepGame(g, { [p.id]: { dx: 1, dy: 0, b: 1 } }, 1 / 60, {});
+  assert.ok(p.x > 5.72, 'walked off');
+  for (let k = 0; k < 40; k++) e.stepGame(g, { [p.id]: { dx: -1, dy: 0, b: 1 } }, 1 / 60, {});
+  assert.ok(Math.abs(p.x - (5.5 + 0.36)) < 0.01, 'the bomb blocks the way back: ' + p.x);
 });
