@@ -300,7 +300,7 @@ function blast(g, i) {
   const c = g.grid[i];
   if (c === undefined || c === '#' || c === 'X') return;
   if (c === 'x') { g.grid[i] = 'X'; g.burn.set(i, FLAME_T); return; }
-  addFlame(g, i, '@');
+  addFlame(g, i, '@', ENEMY_SKIN);
   if (POWERS.includes(c)) g.grid[i] = '.';
   const b = g.bombs.find(o => o.i === i);
   if (b) explode(g, b);
@@ -424,7 +424,7 @@ function doWave(g, b, w) {
   if (w.k === 'bombs') {
     for (const i of w.cells) {
       if (isWallish(g.grid[i]) || g.bombs.some(o => o.i === i)) continue;
-      const bomb = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: 1.4, r: b.ph === 2 ? 3 : 2, owner: '@' };
+      const bomb = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: 1.4, r: b.ph === 2 ? 3 : 2, owner: '@', sk: ENEMY_SKIN };
       g.bombs.push(bomb);
       for (const q of g.players) if (q.alive && Math.hypot(q.x - bomb.fx, q.y - bomb.fy) < 0.95) q.pass.push(bomb.id);
     }

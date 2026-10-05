@@ -175,6 +175,8 @@ function newGame(slots, teams, opts = {}) {
   return g;
 }
 const isPve = m => m === 'v' || m === 'b' || m === 'c' || m === 'h';
+// the bomb/flame look of the enemy side (bosses, their attacks): never one a player can pick
+const ENEMY_SKIN = 4;
 
 function blocked(g, x, y, p) {
   if (x < 0 || y < 0 || x >= W || y >= H) return true;
@@ -293,10 +295,12 @@ function applyReported(g, p, inp, dt) {
   if (p.lock !== -1 && p.lock !== i) p.lock = -1;
 }
 
-// sk: the bomb skin the flame is drawn with (the first bomb to light a cell decides)
+// sk: the bomb skin the flame is drawn with (the first bomb to light a cell decides,
+// except enemy fire, which always shows: it is the fire that hurts)
 function addFlame(g, i, owner, sk = 0) {
   let f = g.flames.get(i);
   if (!f) { f = { t: 0, o: new Set(), sk }; g.flames.set(i, f); }
+  if (sk === ENEMY_SKIN) f.sk = sk;
   f.t = FLAME_T; f.o.add(owner);
 }
 
@@ -362,7 +366,7 @@ function placeBomb(g, p, cellHint) {
   }
   if (g.bombs.some(b => b.i === i)) return;
   if (g.bombs.filter(b => b.owner === p.id).length >= p.maxB) return;
-  const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: g.fuse || FUSE, r: p.fire, owner: p.id, sh: p.shape, sk: p.skin };
+  const b = { id: ++g.bid, i, fx: i % W, fy: (i / W) | 0, vx: 0, vy: 0, lock: -1, t: g.fuse || FUSE, r: p.fire, owner: p.id, sh: p.shape, sk: p.boss ? ENEMY_SKIN : p.skin };
   g.bombs.push(b);
   for (const q of g.players) if (q.alive && touchesCell(q.x, q.y, b.i)) q.pass.push(b.id);
 }
@@ -549,7 +553,8 @@ function stepGame(g, inputs, dt, scores) {
       if (!f) continue;
       let killer = null;
       for (const o of f.o) {
-        if (o === p.id) { if (killer === null) killer = o; continue; }
+        // your own fire hurts you, except in the co-op modes (everyone against the monsters)
+        if (o === p.id) { if (killer === null && !(g.pve && g.mode !== 'h')) killer = o; continue; }
         if (!g.teams || teamOf(o) !== p.team) { killer = o; break; }
       }
       if (killer === null) continue;

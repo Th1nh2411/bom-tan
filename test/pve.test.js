@@ -347,3 +347,34 @@ test('the boss walks around walls and breaks the boxes it walks into', () => {
     }
   }
 });
+
+test('co-op: your own fire does not hurt you; boss fire does, and it always shows as enemy fire', () => {
+  const e = loadEngine();
+  const g = coop(e, 'c', 2);
+  const p = g.players[0];
+  p.inv = 0; p.hp = 1; p.shield = false;
+  at(p, 5, 5);
+  g.flames.set(e.idx(5, 5), { t: 0.5, o: new Set([p.id]), sk: 0 });
+  step(e, g, 0.02);
+  assert.ok(p.alive, 'own fire is harmless in co-op');
+  // a boss blast landing on a player's flame: the enemy look wins, and it hurts
+  g.flames.clear();
+  g.boss = null;
+  g.bombs.push({ id: ++g.bid, i: e.idx(5, 5), fx: 5, fy: 5, vx: 0, vy: 0, lock: -1, t: 0, r: 1, owner: '@', sk: 4 });
+  step(e, g, 0.02);
+  const snap = e.snapshot(g, {});
+  const k = snap.fl.indexOf(e.idx(5, 5));
+  assert.ok(k >= 0 && snap.fs[k] === 4, 'enemy flame look');
+  assert.ok(!p.alive, 'enemy fire hurts');
+});
+
+test('outside co-op your own fire still hurts you', () => {
+  const e = loadEngine();
+  const g = e.newGame(slots(2), false, { mode: 's' });
+  g.ph = 'play';
+  const p = g.players[0];
+  p.inv = 0; at(p, 5, 5);
+  g.flames.set(e.idx(5, 5), { t: 0.5, o: new Set([p.id]), sk: 0 });
+  step(e, g, 0.02);
+  assert.ok(!p.alive);
+});

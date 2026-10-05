@@ -253,9 +253,9 @@ function sanitizeSnap(s) {
   return {
     rid: s.rid | 0, md, gw: s.gw | 0, gh: s.gh | 0, mp: MAPS[s.mp] || s.mp === 'random' ? s.mp : 'classic',
     ph: ['lobby','count','play','end'].includes(s.ph) ? s.ph : 'lobby', tm: s.tm | 0, g: lobby ? '' : s.g,
-    bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5], sk: (b[6] | 0) & 3, sh: (b[7] | 0) & 3 })) : [],
+    bm: Array.isArray(s.bm) ? s.bm.filter(b => Array.isArray(b) && b.length >= 6).map(b => ({ id: b[0] | 0, i: b[1] | 0, t: b[2] | 0, x: (+b[3] || 0) / 100, y: (+b[4] || 0) / 100, mv: !!b[5], sk: Math.min(4, Math.max(0, b[6] | 0)), sh: (b[7] | 0) & 3 })) : [],
     fl: new Set(Array.isArray(s.fl) ? s.fl.map(n => n | 0) : []),
-    fsk: new Map(Array.isArray(s.fl) && Array.isArray(s.fs) ? s.fl.map((n, k) => [n | 0, (s.fs[k] | 0) & 3]) : []),
+    fsk: new Map(Array.isArray(s.fl) && Array.isArray(s.fs) ? s.fl.map((n, k) => [n | 0, Math.min(4, Math.max(0, s.fs[k] | 0))]) : []),
     ev: EVENT_IDS.includes(s.ev) ? s.ev : '', ew: EVENT_IDS.includes(s.ew) ? s.ew : '', et: Math.max(0, s.et | 0), evs: s.evs === 1,
     pl, w: String(s.w || ''), pz: s.pz === 1, pzb: cleanName(s.pzb), ow: typeof s.ow === 'string' ? s.ow : '', pb: s.pb === 1,
     rd: Array.isArray(s.rd) ? s.rd.map(String).slice(0, 16) : [], sa: typeof s.sa === 'number' ? s.sa | 0 : -1,
