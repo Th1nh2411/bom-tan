@@ -256,7 +256,7 @@ function updateStatus() {
     if (s.ht >= 0) note += ` · còn ${mmss(s.ht)}`;
     const me = s.pl.find(p => p.id === myPeer);
     if (me && me.boss) note += ` · ${me.hp} mạng · E: gọi quái${s.hs > 0 ? ' sau ' + s.hs + 's' : ''}`;
-    if (me && PVE_MODES.includes(s.md)) note += ` · ${me.alive ? '♥'.repeat(me.hp) : '♡'} · 🪙 ${me.coins}`;
+    if (me && PVE_MODES.includes(s.md)) note += `${s.pl.length === 1 ? ' · ' + (me.alive ? '♥'.repeat(me.hp) : '♡') : ''} · 🪙 ${me.coins}`;
   }
   if (s && s.ph === 'play' && s.sd > 0) note += ` · bo sau ${Math.floor(s.sd / 60)}:${String(s.sd % 60).padStart(2, '0')}`;
   else if (s && s.ph === 'play' && s.sd === 0) note += ' · bo đang thu hẹp';

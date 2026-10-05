@@ -41,19 +41,27 @@ test('a bomb kills a monster and pays its owner; a monster touch knocks a player
   e.addMob(g, 'bat', e.idx(9, 9));
   g.mobs[0].wait = 99;
   const q = g.players[1];
-  assert.equal(q.hp, 3, 'co-op players start with 3 lives');
+  assert.equal(q.hp, 1, 'in a group everyone has one life');
   step(e, g, 0.05);
-  assert.ok(q.alive && q.hp === 2, 'first touch costs a life');
+  assert.ok(!q.alive && q.down > 0, 'knocked down, waiting for a rescue');
+});
+
+test('a lone co-op player has 3 lives, refilled after a wave', () => {
+  const e = loadEngine();
+  const g = coop(e, 'v', 1);
+  g.brk = 99;
+  const p = g.players[0];
+  assert.equal(p.hp, 3);
+  at(p, 9, 9); p.inv = 0;
+  e.addMob(g, 'bat', e.idx(9, 9));
+  g.mobs[0].wait = 99;
+  step(e, g, 0.05);
+  assert.ok(p.alive && p.hp === 2, 'first touch costs a life');
+  e.respawnDead(g);
+  assert.equal(p.hp, 2, 'still standing: keeps what is left between waves');
   step(e, g, 3);   // the bat stays on them: a life per touch once the blink wears off
-  assert.ok(!q.alive && q.down > 0, 'out of lives: knocked down, waiting for a rescue');
-  at(g.players[0], 9, 9); g.mobs = [];
-  step(e, g, 0.05);
-  assert.ok(q.alive && q.hp === 1, 'rescued with one life');
-  e.respawnDead(g);
-  assert.equal(q.hp, 1, 'standing players keep what they have between waves');
-  q.alive = false; q.down = e.DOWN_T;
-  e.respawnDead(g);
-  assert.equal(q.hp, 3, 'back to full after a wave');
+  assert.ok(!p.alive, 'out of lives');
+  assert.equal(g.winner, 'lose', 'nobody left to rescue them');
 });
 
 test('co-op: a downed player waits for a rescue with no time limit; the round is lost once nobody stands', () => {
